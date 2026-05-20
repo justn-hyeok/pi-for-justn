@@ -1,6 +1,6 @@
 {
 	"name": "@justn/p4j",
-	"version": "0.4.0",
+	"version": "0.5.0",
 	"description": "Personal p4j wrapper and Pi resource layer",
 	"type": "module",
 	"bin": {
