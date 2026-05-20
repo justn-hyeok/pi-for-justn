@@ -7,6 +7,7 @@ import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/
 import {
 	buildActiveState,
 	buildLocalDiagnosticsSnapshot,
+	getLocalReport,
 	getStopModelsDryRun,
 	parseStopModelsArgs,
 	parseStopModelsCandidates,
@@ -37,7 +38,7 @@ test("builds and persists active state without prompt or credential content", ()
 	const cwd = mkdtempSync(join(tmpdir(), "p4j-active-"));
 	const ctx = createContext(cwd) as ExtensionContext;
 	const state = buildActiveState(ctx, "agent_start", "running");
-	assert.equal(state.version, "0.5.1");
+	assert.equal(state.version, "0.6.0");
 	assert.equal(state.status, "running");
 	assert.equal(state.model, "test-provider/test-model");
 	assert.equal(state.context, "12%/345");
@@ -61,15 +62,44 @@ test("builds local diagnostics snapshot from injected read-only command results"
 			"pgrep -fl cmux": "",
 			"pgrep -fl node.*model": "2345 node modelpool serve\n",
 			"pgrep -fl node.*provider": "",
-			"df -h /tmp/p4j": "Filesystem Size Used Avail Capacity Mounted on\n",
+			"df -h /tmp/p4j": "Filesystem Size Used Avail Capacity Mounted on\n/dev/disk3s1 100G 50G 50G 50% /\n",
 		};
 		return { stdout: outputs[key] ?? "", stderr: "", status: outputs[key] ? 0 : 1 };
 	});
-	assert.equal(snapshot.version, "0.5.1");
+	assert.equal(snapshot.version, "0.6.0");
 	assert.equal(snapshot.runtime.node, "v25.9.0");
 	assert.equal(snapshot.git, "## main...origin/main");
 	assert.match(snapshot.processes.ollama, /ollama serve/);
 	assert.equal(snapshot.processes.cmux, "none");
+	assert.equal(snapshot.disk, "/dev/disk3s1 100G 50G 50G 50% /");
+});
+
+test("writes local report with readable summary and JSON snapshot path", () => {
+	const cwd = mkdtempSync(join(tmpdir(), "p4j-local-"));
+	const report = getLocalReport(cwd, (command, args) => {
+		const key = [command, ...args].join(" ");
+		const outputs: Record<string, string> = {
+			"node --version": "v25.9.0\n",
+			"npm --version": "11.6.2\n",
+			"tmux -V": "tmux 3.6a\n",
+			"git status --short --branch": "## main...origin/main\n",
+			"pgrep -fl ollama": "1234 ollama serve\n",
+			"pgrep -fl cmux": "",
+			"pgrep -fl node.*model": "2345 node modelpool serve\n",
+			"pgrep -fl node.*provider": "",
+			[`df -h ${cwd}`]: "Filesystem Size Used Avail Capacity Mounted on\n/dev/disk3s1 100G 50G 50G 50% /\n",
+		};
+		return { stdout: outputs[key] ?? "", stderr: "", status: outputs[key] ? 0 : 1 };
+	});
+	const snapshotPath = join(cwd, ".p4j", "local", "latest.json");
+	const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as { version?: unknown; cwd?: unknown };
+	assert.match(report, /p4j local summary \(read-only\)/);
+	assert.match(report, /runtime: node v25\.9\.0, npm 11\.6\.2, tmux 3\.6a/);
+	assert.match(report, /model candidates: ollama=1 \(1234 ollama serve\); cmux=none; node\.\*model=1/);
+	assert.match(report, /disk \/dev\/disk3s1 100G 50G 50G 50% \//);
+	assert.equal(report.includes(`JSON snapshot: ${snapshotPath}`), true);
+	assert.equal(snapshot.version, "0.6.0");
+	assert.equal(snapshot.cwd, cwd);
 });
 
 test("parses stop-models arguments with dry-run default and apply pid", () => {

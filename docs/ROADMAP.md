@@ -43,6 +43,12 @@
 - Revalidate the selected PID immediately before apply.
 - Refuse apply if the PID disappears or its command changes after confirmation.
 
+## v0.6.0
+
+- Add user-facing p4j usage documentation.
+- Make `p4j local` print a readable summary and the JSON snapshot path.
+- Keep local diagnostics read-only except for ignored `.p4j/local/latest.json` snapshots.
+
 ## Next
 
 - Improve provider/model routing hints.

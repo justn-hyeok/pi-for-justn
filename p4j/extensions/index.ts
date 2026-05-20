@@ -4,7 +4,7 @@ import { freemem, platform, release, totalmem } from "node:os";
 import { dirname, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export const VERSION = "0.5.1";
+export const VERSION = "0.6.0";
 export const WORKFLOWS = "quick, think, search, plan, build, review, ship, local, team, ulw";
 export const STOP_MODEL_PATTERNS = ["ollama", "cmux", "node.*model", "node.*provider"] as const;
 
@@ -90,6 +90,18 @@ function firstLine(value: string): string {
 	return value.split("\n")[0]?.trim() || "unavailable";
 }
 
+function secondLineOrFirst(value: string): string {
+	const lines = value
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0);
+	return lines[1] ?? lines[0] ?? "unavailable";
+}
+
+function truncate(value: string, maxLength: number): string {
+	return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+}
+
 function formatBytes(bytes: number): string {
 	return `${(bytes / 1024 / 1024 / 1024).toFixed(1)}GB`;
 }
@@ -113,7 +125,7 @@ function formatContextUsage(ctx: ExtensionContext): string {
 
 export function buildActiveState(ctx: ExtensionContext, event: string, status: string): ActiveState {
 	return {
-		version: "0.5.1",
+		version: VERSION,
 		status,
 		updatedAt: new Date().toISOString(),
 		cwd: ctx.cwd,
@@ -170,7 +182,7 @@ function getActiveReport(ctx: ExtensionCommandContext): string {
 export function buildLocalDiagnosticsSnapshot(cwd: string, runner: CommandRunner = defaultCommandRunner): LocalDiagnosticsSnapshot {
 	const read = (command: string, args: string[]) => formatCommandResult(runner(command, args, cwd));
 	return {
-		version: "0.5.1",
+		version: VERSION,
 		timestamp: new Date().toISOString(),
 		cwd,
 		platform: `${platform()} ${release()}`,
@@ -187,7 +199,7 @@ export function buildLocalDiagnosticsSnapshot(cwd: string, runner: CommandRunner
 			}),
 		) as Record<(typeof STOP_MODEL_PATTERNS)[number], string>,
 		memory: `${formatBytes(freemem())} free / ${formatBytes(totalmem())} total`,
-		disk: firstLine(read("df", ["-h", cwd])),
+		disk: secondLineOrFirst(read("df", ["-h", cwd])),
 	};
 }
 
@@ -201,25 +213,32 @@ export function persistLocalDiagnosticsSnapshot(cwd: string, snapshot: LocalDiag
 	}
 }
 
-function formatLocalDiagnosticsSnapshot(snapshot: LocalDiagnosticsSnapshot): string {
+function formatProcessSummary(snapshot: LocalDiagnosticsSnapshot): string {
+	return STOP_MODEL_PATTERNS.map((pattern) => {
+		const candidates = parseStopModelsCandidates({ [pattern]: snapshot.processes[pattern] });
+		if (candidates.length === 0) {
+			return `${pattern}=none`;
+		}
+		const first = candidates[0];
+		return `${pattern}=${candidates.length} (${first.pid} ${truncate(first.command, 48)})`;
+	}).join("; ");
+}
+
+export function formatLocalDiagnosticsSnapshot(snapshot: LocalDiagnosticsSnapshot): string {
 	return [
-		"p4j local diagnostics (read-only)",
-		`timestamp: ${snapshot.timestamp}`,
+		"p4j local summary (read-only)",
 		`cwd: ${snapshot.cwd}`,
 		`platform: ${snapshot.platform}`,
 		`git: ${snapshot.git}`,
-		`node: ${snapshot.runtime.node}`,
-		`npm: ${snapshot.runtime.npm}`,
-		`tmux: ${snapshot.runtime.tmux}`,
-		...STOP_MODEL_PATTERNS.map((pattern) => `${pattern}: ${firstLine(snapshot.processes[pattern])}`),
-		`memory: ${snapshot.memory}`,
-		`disk: ${snapshot.disk}`,
-		`snapshot: ${getLocalSnapshotPath(snapshot.cwd)}`,
+		`runtime: node ${snapshot.runtime.node}, npm ${snapshot.runtime.npm}, ${snapshot.runtime.tmux}`,
+		`model candidates: ${formatProcessSummary(snapshot)}`,
+		`resources: memory ${snapshot.memory}; disk ${snapshot.disk}`,
+		`JSON snapshot: ${getLocalSnapshotPath(snapshot.cwd)}`,
 	].join("\n");
 }
 
-function getLocalReport(cwd: string): string {
-	const snapshot = buildLocalDiagnosticsSnapshot(cwd);
+export function getLocalReport(cwd: string, runner: CommandRunner = defaultCommandRunner): string {
+	const snapshot = buildLocalDiagnosticsSnapshot(cwd, runner);
 	persistLocalDiagnosticsSnapshot(cwd, snapshot);
 	return formatLocalDiagnosticsSnapshot(snapshot);
 }

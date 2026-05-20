@@ -102,13 +102,13 @@ test("p4j active state skeleton exists", () => {
 		status?: unknown;
 		event?: unknown;
 	};
-	assert.equal(active.version, "0.5.1");
+	assert.equal(active.version, "0.6.0");
 	assert.equal(typeof active.status, "string");
 	assert.equal(typeof active.event, "string");
 });
 
 test("p4j docs and state skeleton exist", () => {
-	for (const path of ["docs/ROADMAP.md", "docs/NAMING.md", ".p4j/README.md", ".p4j/.gitignore"]) {
+	for (const path of ["docs/ROADMAP.md", "docs/NAMING.md", "docs/USAGE.md", ".p4j/README.md", ".p4j/.gitignore"]) {
 		assert.equal(existsSync(resolve(repoRoot, path)), true, `${path} should exist`);
 	}
 	const stateReadme = readFileSync(resolve(repoRoot, ".p4j", "README.md"), "utf8");
