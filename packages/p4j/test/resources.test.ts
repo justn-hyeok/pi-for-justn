@@ -85,19 +85,26 @@ test("extension entrypoint uses p4j status and theme without replacing Pi TUI", 
 	assert.match(content, /p4j stop-models dry-run/);
 	assert.match(content, /No processes were stopped/);
 	assert.match(content, /STOP_MODEL_PATTERNS/);
+	assert.match(content, /--apply --pid <pid>/);
+	assert.match(content, /process\.kill\(pid, "SIGTERM"\)/);
 	assert.doesNotMatch(content, /spawnSync\("kill"/);
 	assert.doesNotMatch(content, /spawnSync\("pkill"/);
 	assert.doesNotMatch(content, /spawnSync\("launchctl"/);
-	assert.doesNotMatch(content, /--apply/);
 	assert.doesNotMatch(content, /setFooter/);
 	assert.doesNotMatch(content, /setEditorComponent/);
 });
 
 test("p4j active state skeleton exists", () => {
 	const activePath = resolve(repoRoot, ".p4j", "active.json");
-	const active = JSON.parse(readFileSync(activePath, "utf8")) as { version?: unknown; status?: unknown };
-	assert.equal(active.version, "0.4.0");
-	assert.equal(active.status, "stop-models dry-run");
+	const content = readFileSync(activePath, "utf8");
+	const active = JSON.parse(content) as {
+		version?: unknown;
+		status?: unknown;
+		event?: unknown;
+	};
+	assert.equal(active.version, "0.5.0");
+	assert.equal(typeof active.status, "string");
+	assert.equal(typeof active.event, "string");
 });
 
 test("p4j docs and state skeleton exist", () => {
@@ -107,4 +114,5 @@ test("p4j docs and state skeleton exist", () => {
 	const stateReadme = readFileSync(resolve(repoRoot, ".p4j", "README.md"), "utf8");
 	assert.match(stateReadme, /Do not store secrets/);
 	assert.match(stateReadme, /active\.json/);
+	assert.match(stateReadme, /--apply --pid <pid>/);
 });
