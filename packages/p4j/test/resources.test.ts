@@ -102,7 +102,7 @@ test("p4j active state skeleton exists", () => {
 		status?: unknown;
 		event?: unknown;
 	};
-	assert.equal(active.version, "0.5.0");
+	assert.equal(active.version, "0.5.1");
 	assert.equal(typeof active.status, "string");
 	assert.equal(typeof active.event, "string");
 });

@@ -12,10 +12,10 @@ test("injects the p4j layer for normal Pi arguments", () => {
 	assert.deepEqual(withP4jLayer(["hello"], layerPath), ["-e", layerPath, "hello"]);
 });
 
-test("reports p4j v0.5 from the package binary", () => {
+test("reports p4j v0.5.1 from the package binary", () => {
 	const version = spawnSync("node", ["dist/cli.js", "--version"], { cwd: packageRoot, encoding: "utf8" });
 	assert.equal(version.status, 0);
-	assert.equal(version.stdout.trim(), "0.5.0");
+	assert.equal(version.stdout.trim(), "0.5.1");
 });
 
 test("maps p4j workflow modes to prompt template commands", () => {

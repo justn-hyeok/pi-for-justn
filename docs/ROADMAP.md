@@ -38,6 +38,11 @@
 - `p4j stop-models --apply --pid <pid>` may stop only a selected safe candidate after interactive confirmation.
 - Verification must use tests and fake executors, not real user processes.
 
+## v0.5.1
+
+- Revalidate the selected PID immediately before apply.
+- Refuse apply if the PID disappears or its command changes after confirmation.
+
 ## Next
 
 - Improve provider/model routing hints.

@@ -4,7 +4,7 @@ import { freemem, platform, release, totalmem } from "node:os";
 import { dirname, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export const VERSION = "0.5";
+export const VERSION = "0.5.1";
 export const WORKFLOWS = "quick, think, search, plan, build, review, ship, local, team, ulw";
 export const STOP_MODEL_PATTERNS = ["ollama", "cmux", "node.*model", "node.*provider"] as const;
 
@@ -113,7 +113,7 @@ function formatContextUsage(ctx: ExtensionContext): string {
 
 export function buildActiveState(ctx: ExtensionContext, event: string, status: string): ActiveState {
 	return {
-		version: "0.5.0",
+		version: "0.5.1",
 		status,
 		updatedAt: new Date().toISOString(),
 		cwd: ctx.cwd,
@@ -170,7 +170,7 @@ function getActiveReport(ctx: ExtensionCommandContext): string {
 export function buildLocalDiagnosticsSnapshot(cwd: string, runner: CommandRunner = defaultCommandRunner): LocalDiagnosticsSnapshot {
 	const read = (command: string, args: string[]) => formatCommandResult(runner(command, args, cwd));
 	return {
-		version: "0.5.0",
+		version: "0.5.1",
 		timestamp: new Date().toISOString(),
 		cwd,
 		platform: `${platform()} ${release()}`,
@@ -358,13 +358,14 @@ function defaultStopExecutor(pid: number): { ok: true } | { ok: false; error: st
 export async function runStopModelsRequest(
 	args: string,
 	ctx: ExtensionCommandContext,
-	options: { candidates?: StopModelsCandidate[]; stopExecutor?: StopExecutor } = {},
+	options: { candidates?: StopModelsCandidate[]; candidateProvider?: () => StopModelsCandidate[]; stopExecutor?: StopExecutor } = {},
 ): Promise<{ type: "info" | "warning" | "error"; message: string }> {
 	const request = parseStopModelsArgs(args);
 	if (request.errors.length > 0) {
 		return { type: "error", message: `p4j stop-models refused\n${request.errors.join("\n")}` };
 	}
-	const candidates = options.candidates ?? discoverStopModelsCandidates(ctx.cwd);
+	const candidateProvider = options.candidateProvider ?? (() => options.candidates ?? discoverStopModelsCandidates(ctx.cwd));
+	const candidates = candidateProvider();
 	const target = findStopTarget(request, candidates);
 	if (!request.apply) {
 		return target.error
@@ -386,6 +387,13 @@ export async function runStopModelsRequest(
 	);
 	if (!confirmed) {
 		return { type: "warning", message: `p4j stop-models cancelled\nNo processes were stopped.\npid: ${target.candidate.pid}` };
+	}
+	const currentTarget = findStopTarget(request, candidateProvider());
+	if (currentTarget.error || !currentTarget.candidate) {
+		return { type: "error", message: `p4j stop-models refused\npid changed before apply: ${currentTarget.error ?? "missing target candidate"}` };
+	}
+	if (currentTarget.candidate.command !== target.candidate.command) {
+		return { type: "error", message: "p4j stop-models refused\npid command changed before apply" };
 	}
 	const result = (options.stopExecutor ?? defaultStopExecutor)(target.candidate.pid);
 	if (!result.ok) {

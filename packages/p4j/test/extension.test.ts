@@ -37,7 +37,7 @@ test("builds and persists active state without prompt or credential content", ()
 	const cwd = mkdtempSync(join(tmpdir(), "p4j-active-"));
 	const ctx = createContext(cwd) as ExtensionContext;
 	const state = buildActiveState(ctx, "agent_start", "running");
-	assert.equal(state.version, "0.5.0");
+	assert.equal(state.version, "0.5.1");
 	assert.equal(state.status, "running");
 	assert.equal(state.model, "test-provider/test-model");
 	assert.equal(state.context, "12%/345");
@@ -65,7 +65,7 @@ test("builds local diagnostics snapshot from injected read-only command results"
 		};
 		return { stdout: outputs[key] ?? "", stderr: "", status: outputs[key] ? 0 : 1 };
 	});
-	assert.equal(snapshot.version, "0.5.0");
+	assert.equal(snapshot.version, "0.5.1");
 	assert.equal(snapshot.runtime.node, "v25.9.0");
 	assert.equal(snapshot.git, "## main...origin/main");
 	assert.match(snapshot.processes.ollama, /ollama serve/);
@@ -179,6 +179,70 @@ test("refuses unknown candidate pid and system pid", async () => {
 	});
 	assert.equal(system.type, "error");
 	assert.match(system.message, /system pid below 100/);
+});
+
+test("revalidates pid before executing apply", async () => {
+	let providerCalls = 0;
+	let stoppedPid: number | undefined;
+	const candidate = { pattern: "ollama", pid: 400, command: "ollama serve" };
+	const result = await runStopModelsRequest("--apply --pid 400", createContext("/tmp/p4j", true), {
+		candidateProvider: () => {
+			providerCalls += 1;
+			return [candidate];
+		},
+		stopExecutor: (pid) => {
+			stoppedPid = pid;
+			return { ok: true };
+		},
+	});
+	assert.equal(result.type, "warning");
+	assert.match(result.message, /stopped pid: 400/);
+	assert.equal(providerCalls, 2);
+	assert.equal(stoppedPid, 400);
+});
+
+test("refuses stale pid before executing apply", async () => {
+	let providerCalls = 0;
+	let stoppedPid: number | undefined;
+	const result = await runStopModelsRequest("--apply --pid 400", createContext("/tmp/p4j", true), {
+		candidateProvider: () => {
+			providerCalls += 1;
+			return providerCalls === 1 ? [{ pattern: "ollama", pid: 400, command: "ollama serve" }] : [];
+		},
+		stopExecutor: (pid) => {
+			stoppedPid = pid;
+			return { ok: true };
+		},
+	});
+	assert.equal(result.type, "error");
+	assert.match(result.message, /pid changed before apply/);
+	assert.equal(providerCalls, 2);
+	assert.equal(stoppedPid, undefined);
+});
+
+test("refuses changed pid command before executing apply", async () => {
+	let providerCalls = 0;
+	let stoppedPid: number | undefined;
+	const result = await runStopModelsRequest("--apply --pid 400", createContext("/tmp/p4j", true), {
+		candidateProvider: () => {
+			providerCalls += 1;
+			return [
+				{
+					pattern: "ollama",
+					pid: 400,
+					command: providerCalls === 1 ? "ollama serve" : "node unrelated.js",
+				},
+			];
+		},
+		stopExecutor: (pid) => {
+			stoppedPid = pid;
+			return { ok: true };
+		},
+	});
+	assert.equal(result.type, "error");
+	assert.match(result.message, /pid command changed before apply/);
+	assert.equal(providerCalls, 2);
+	assert.equal(stoppedPid, undefined);
 });
 
 test("requires confirmation before executing apply", async () => {
