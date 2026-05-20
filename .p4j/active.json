@@ -1,0 +1,10 @@
+{
+	"version": "0.4.0",
+	"status": "stop-models dry-run",
+	"updatedAt": "2026-05-20T00:00:00+09:00",
+	"notes": [
+		"p4j active reads this file but does not mutate it yet.",
+		"p4j stop-models detects candidates but does not stop processes yet.",
+		"Do not store secrets, API keys, tokens, or private account identifiers here."
+	]
+}
