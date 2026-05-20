@@ -1,0 +1,13 @@
+{
+	"name": "p4j-layer",
+	"version": "0.4.0",
+	"private": true,
+	"type": "module",
+	"keywords": ["pi-package"],
+	"pi": {
+		"extensions": ["./extensions"],
+		"skills": ["./skills"],
+		"prompts": ["./prompts"],
+		"themes": ["./themes"]
+	}
+}
