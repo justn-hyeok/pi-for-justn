@@ -32,7 +32,7 @@ export function getP4jHelp(): string {
 Usage:
   p4j [pi options] [@files...] [messages...]
   p4j <quick|think|search|plan|build|review|ship|team|ulw> <task>
-  p4j <status|active|local|stop-models>
+  p4j <status|active|local|stop-models> [args...]
   p4j <pi command> [args...]
 
 Workflow shortcuts:
@@ -51,6 +51,8 @@ Local stubs:
   p4j active          Show read-only p4j active state
   p4j local           Show read-only local diagnostics
   p4j stop-models     Dry-run model/process candidates without stopping anything
+  p4j stop-models --apply --pid <pid>
+                       Stop one candidate after interactive confirmation
 
 All other arguments pass through to Pi with the p4j resource layer loaded.
 Use 'p4j pi --help' to show the underlying Pi help.`;
@@ -83,7 +85,8 @@ export function withP4jLayer(args: string[], layerPath: string): string[] {
 	const layerArgs = ["-e", layerPath];
 	const command = first ? P4J_COMMANDS.get(first) : undefined;
 	if (command) {
-		return [...layerArgs, command];
+		const commandArgs = rest.join(" ").trim();
+		return [...layerArgs, commandArgs.length > 0 ? `${command} ${commandArgs}` : command];
 	}
 	if (first && P4J_MODES.has(first)) {
 		return [...layerArgs, `/${first}`, rest.join(" ").trim()].filter((arg) => arg.length > 0);
