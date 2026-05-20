@@ -1,0 +1,22 @@
+{
+	"name": "@justn/p4j",
+	"version": "0.4.0",
+	"description": "Personal p4j wrapper and Pi resource layer",
+	"type": "module",
+	"bin": {
+		"p4j": "dist/cli.js"
+	},
+	"main": "./dist/cli.js",
+	"types": "./dist/cli.d.ts",
+	"files": ["dist"],
+	"scripts": {
+		"clean": "shx rm -rf dist",
+		"build": "tsgo -p tsconfig.build.json && shx chmod +x dist/cli.js",
+		"dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
+		"test": "tsx --test test/*.test.ts"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"license": "MIT"
+}
