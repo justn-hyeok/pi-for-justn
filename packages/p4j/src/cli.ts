@@ -57,10 +57,16 @@ Usage:
   p4j <status|active|local|hints|stop-models> [args...]
   p4j <pi command> [args...]
 
+Help and version:
+  p4j --help          Show this help before preflight from any cwd
+  p4j --version       Print the version before preflight from any cwd
+  These flags work even in linked checkouts before preflight runs.
+
 Install / linked usage:
   npm install
   npm run build --workspace packages/p4j   Build dist before linking from source
   npm link --workspace packages/p4j        Link p4j for use from any cwd
+  Linked binaries resolve the package files from the installed package location.
 
 Workflow shortcuts:
   p4j quick <task>   Run /quick for small bounded work
@@ -77,7 +83,7 @@ Local stubs:
   p4j status          Show loaded p4j workflows
   p4j active          Show read-only p4j active state
   p4j local           Show read-only local diagnostics
-  p4j hints           Show model routing hints from the current registry
+  p4j hints           Show manual model routing hints from the current registry
   p4j stop-models     Dry-run model/process candidates without stopping anything
   p4j stop-models --apply --pid <pid>
                        Stop one candidate after interactive confirmation

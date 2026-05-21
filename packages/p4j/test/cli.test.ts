@@ -40,10 +40,10 @@ test("resolves paths from the installed package location instead of cwd", () => 
 	}
 });
 
-test("reports p4j v0.8 from the package binary", () => {
+test("reports p4j v0.8.1 from the package binary", () => {
 	const version = spawnSync("node", ["dist/cli.js", "--version"], { cwd: packageRoot, encoding: "utf8" });
 	assert.equal(version.status, 0);
-	assert.equal(version.stdout.trim(), "0.8.0");
+	assert.equal(version.stdout.trim(), "0.8.1");
 });
 
 test("maps p4j workflow modes to prompt template commands", () => {
@@ -82,12 +82,16 @@ test("documents install and linked usage in help", () => {
 	}
 	assert.match(help, /npm install/);
 	assert.match(help, /npm run build --workspace packages\/p4j/);
+	assert.match(help, /p4j --help/);
+	assert.match(help, /p4j --version/);
+	assert.match(help, /Show this help before preflight from any cwd/);
+	assert.match(help, /These flags work even in linked checkouts before preflight runs\./);
 	assert.match(help, /npm link --workspace packages\/p4j/);
 	assert.match(help, /p4j status/);
 	assert.match(help, /p4j active/);
 	assert.match(help, /p4j local/);
 	assert.match(help, /p4j hints/);
-	assert.match(help, /Show model routing hints from the current registry/);
+	assert.match(help, /Show manual model routing hints from the current registry/);
 	assert.match(help, /p4j stop-models/);
 	assert.match(help, /Dry-run model\/process candidates without stopping anything/);
 	assert.match(help, /p4j stop-models --apply --pid <pid>/);
@@ -127,15 +131,21 @@ test("runs the package binary from outside the repo cwd", () => {
 		encoding: "utf8",
 	});
 	assert.equal(version.status, 0);
-	assert.equal(version.stdout.trim(), "0.8.0");
+	assert.equal(version.stdout.trim(), "0.8.1");
 });
 
-test("runs through a linked package binary symlink", () => {
+test("runs through a linked package binary symlink for help", () => {
+	const foreignCwd = mkdtempSync(resolve(tmpdir(), "p4j-linked-cwd-"));
 	const binDir = mkdtempSync(resolve(tmpdir(), "p4j-linked-bin-"));
 	const linkedBin = resolve(binDir, "p4j");
 	symlinkSync(resolve(packageRoot, "dist", "cli.js"), linkedBin);
 
-	const version = spawnSync("node", [linkedBin, "--version"], { encoding: "utf8" });
-	assert.equal(version.status, 0);
-	assert.equal(version.stdout.trim(), "0.8.0");
+	const help = spawnSync("node", [linkedBin, "--help"], {
+		cwd: foreignCwd,
+		encoding: "utf8",
+	});
+	assert.equal(help.status, 0);
+	assert.match(help.stdout, /Install \/ linked usage:/);
+	assert.match(help.stdout, /Linked binaries resolve the package files from the installed package location\./);
+	assert.match(help.stdout, /Show this help before preflight from any cwd/);
 });
