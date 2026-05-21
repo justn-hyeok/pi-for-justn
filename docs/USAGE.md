@@ -12,6 +12,16 @@ p4j pi --help
 
 Use `p4j pi ...` when you want raw upstream Pi behavior without p4j argument mapping.
 
+For linked checkout usage:
+
+```bash
+npm install
+npm run build --workspace packages/p4j
+npm link --workspace packages/p4j
+```
+
+The linked `p4j` binary resolves Pi and the p4j resource layer from the package location, not from the current working directory, so it can be run from other directories after linking.
+
 ## Workflow Shortcuts
 
 ```bash
@@ -34,14 +44,17 @@ These map to p4j prompt templates loaded from the `p4j/prompts` resource layer.
 p4j status
 p4j active
 p4j local
+p4j hints
 p4j stop-models
 ```
 
 `p4j active` reports local session metadata from `.p4j/active.json`.
 
-`p4j local` is read-only except for writing an ignored diagnostics snapshot to `.p4j/local/latest.json`. Its terminal output is a short human-readable summary and includes the JSON snapshot path for detailed inspection.
+`p4j local` is read-only except for writing an ignored diagnostics snapshot to `.p4j/local/latest.json`. Its terminal output is a short human-readable summary, separates likely model processes from noisy local matches, and includes the JSON snapshot path for detailed inspection.
 
-`p4j stop-models` is dry-run by default. It lists candidate local model-adjacent processes and stops nothing.
+`p4j hints` reports lightweight provider/model next steps from the current Pi model registry. It suggests `/login`, `/model`, `p4j --list-models`, and explicit `p4j --provider <provider> --model <model>` invocations without changing model selection.
+
+`p4j stop-models` is dry-run by default. It lists candidate local model-adjacent processes and stops nothing. Dry-run output separates likely candidates from noisy/local matches.
 
 ## Explicit Stop Boundary
 
@@ -58,6 +71,17 @@ This is the only process-control path. It requires all of the following:
 - a final PID and command revalidation immediately before apply
 
 Do not use `--apply` unless you intend to send `SIGTERM` to exactly that candidate PID.
+
+## Provider And Model Setup
+
+Use Pi's existing provider/model system:
+
+```bash
+p4j --list-models
+p4j --provider openai --model gpt-4o
+```
+
+Inside interactive Pi, use `/login` to add credentials and `/model` to choose a model. See `packages/coding-agent/docs/providers.md` and `packages/coding-agent/docs/models.md` for upstream provider/model details.
 
 ## Local State
 

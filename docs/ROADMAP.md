@@ -49,10 +49,27 @@
 - Make `p4j local` print a readable summary and the JSON snapshot path.
 - Keep local diagnostics read-only except for ignored `.p4j/local/latest.json` snapshots.
 
+## v0.6.1
+
+- Separate likely model processes from noisy/local process matches in `p4j local` and `p4j stop-models` dry-run output.
+- Keep classification informational so the existing explicit `--apply --pid` safety boundary remains unchanged.
+
+## v0.7.0
+
+- Improve linked checkout usage with `npm link --workspace packages/p4j` guidance.
+- Resolve wrapper paths from the installed package location instead of the caller's current working directory.
+- Make preflight failures explain missing dependencies, build output, and link setup steps.
+
+## v0.8.0
+
+- Add `p4j hints` for lightweight provider/model setup guidance.
+- Surface `/login`, `/model`, `p4j --list-models`, and explicit `--provider/--model` next steps without changing Pi model selection.
+- Keep provider/model routing in Pi core; p4j only reports hints from the current registry.
+
 ## Next
 
-- Improve provider/model routing hints.
-- Add install/dev UX for using `p4j` outside this checkout.
+- Exercise p4j in more real terminal sessions.
+- Decide whether `p4j hints` should appear in startup status or remain manual-only.
 - Keep Pi core changes minimal and prefer the p4j package layer.
 
 ## Deferred
