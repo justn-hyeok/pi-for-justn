@@ -1,5 +1,5 @@
 {
-	"version": "0.6.0",
+	"version": "0.8.0",
 	"status": "sample active state",
 	"updatedAt": "2026-05-20T00:00:00+09:00",
 	"cwd": "/Users/justn/Workspaces/pi-for-justn",
@@ -13,6 +13,7 @@
 		"p4j active updates this file with local session metadata.",
 		"p4j local writes ignored diagnostics snapshots under .p4j/local/.",
 		"p4j stop-models is dry-run by default and requires --apply --pid plus confirmation to stop one candidate.",
+		"p4j hints reports provider/model guidance without changing Pi model selection.",
 		"Do not store secrets, API keys, tokens, or private account identifiers here."
 	]
 }
