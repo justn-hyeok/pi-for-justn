@@ -4,9 +4,11 @@ import { freemem, platform, release, totalmem } from "node:os";
 import { dirname, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export const VERSION = "0.6.0";
+export const VERSION = "0.8.0";
 export const WORKFLOWS = "quick, think, search, plan, build, review, ship, local, team, ulw";
 export const STOP_MODEL_PATTERNS = ["ollama", "cmux", "node.*model", "node.*provider"] as const;
+
+type StopModelsCandidateClassification = "likely" | "noisy";
 
 type CommandResult = {
 	stdout: string;
@@ -52,6 +54,7 @@ export type StopModelsCandidate = {
 	pattern: string;
 	pid: number;
 	command: string;
+	classification: StopModelsCandidateClassification;
 };
 
 export type StopModelsRequest = {
@@ -121,6 +124,63 @@ function formatModel(ctx: ExtensionContext): string {
 function formatContextUsage(ctx: ExtensionContext): string {
 	const usage = ctx.getContextUsage();
 	return usage ? `${usage.percent ?? 0}%/${usage.tokens ?? 0}` : "unknown";
+}
+
+type RoutingHintModel = NonNullable<ExtensionContext["model"]>;
+
+function formatModelReference(model: RoutingHintModel): string {
+	return `${model.provider}/${model.id}`;
+}
+
+export function formatRoutingHints(ctx: ExtensionCommandContext | ExtensionContext): string {
+	const allModels = ctx.modelRegistry.getAll();
+	const availableModels = ctx.modelRegistry.getAvailable();
+	const rawCurrentModel = ctx.model;
+	const currentModel =
+		rawCurrentModel && allModels.some((model) => model.provider === rawCurrentModel.provider && model.id === rawCurrentModel.id)
+			? rawCurrentModel
+			: undefined;
+	const currentModelReference = currentModel ? formatModelReference(currentModel) : "none";
+	const lines = ["p4j routing hints", `current model: ${currentModelReference}`, `usable models: ${availableModels.length}/${allModels.length}`];
+
+	if (allModels.length === 0) {
+		lines.push("next: p4j --list-models");
+		lines.push("next: /login");
+		lines.push("docs: packages/coding-agent/docs/providers.md, packages/coding-agent/docs/models.md");
+		return lines.join("\n");
+	}
+
+	const formatProviderModelCommand = (model: RoutingHintModel): string => `p4j --provider ${model.provider} --model ${model.id}`;
+	const firstModel = availableModels[0] ?? allModels[0];
+
+	if (!currentModel) {
+		const providerDisplayName = ctx.modelRegistry.getProviderDisplayName(firstModel.provider);
+		lines.push("next: /model");
+		lines.push(`try: ${providerDisplayName} -> ${formatProviderModelCommand(firstModel)}`);
+		if (availableModels.length === 0) {
+			lines.push("next: /login");
+		}
+		lines.push("next: p4j --list-models");
+		lines.push("docs: packages/coding-agent/docs/providers.md, packages/coding-agent/docs/models.md");
+		return lines.join("\n");
+	}
+
+	const providerDisplayName = ctx.modelRegistry.getProviderDisplayName(currentModel.provider);
+	const hasAuth = ctx.modelRegistry.hasConfiguredAuth(currentModel);
+	if (!hasAuth) {
+		lines.push(`selected: ${providerDisplayName} needs login for ${currentModelReference}`);
+		lines.push("next: /login");
+	} else {
+		lines.push(`selected: ${providerDisplayName} is ready for ${currentModelReference}`);
+		lines.push("next: /model");
+	}
+	lines.push(`cli: ${formatProviderModelCommand(currentModel)}`);
+	const alternateModel = availableModels.find((model) => model.provider !== currentModel.provider || model.id !== currentModel.id) ?? firstModel;
+	const alternateProviderDisplayName = ctx.modelRegistry.getProviderDisplayName(alternateModel.provider);
+	lines.push(`try: ${alternateProviderDisplayName} -> ${formatProviderModelCommand(alternateModel)}`);
+	lines.push("next: p4j --list-models");
+	lines.push("docs: packages/coding-agent/docs/providers.md, packages/coding-agent/docs/models.md");
+	return lines.join("\n");
 }
 
 export function buildActiveState(ctx: ExtensionContext, event: string, status: string): ActiveState {
@@ -213,15 +273,43 @@ export function persistLocalDiagnosticsSnapshot(cwd: string, snapshot: LocalDiag
 	}
 }
 
-function formatProcessSummary(snapshot: LocalDiagnosticsSnapshot): string {
-	return STOP_MODEL_PATTERNS.map((pattern) => {
-		const candidates = parseStopModelsCandidates({ [pattern]: snapshot.processes[pattern] });
-		if (candidates.length === 0) {
-			return `${pattern}=none`;
+function classifyStopModelsCandidate(pattern: string, command: string): StopModelsCandidateClassification {
+	if (pattern === "cmux" || /(^|\s)cmux(\s|$)/i.test(command)) {
+		return "noisy";
+	}
+	if (pattern === "ollama" || pattern.startsWith("node.*") || /(^|\s)node(\s|$).*\b(model|provider)\b/i.test(command)) {
+		return "likely";
+	}
+	return "likely";
+}
+
+function formatCandidateGroupSummary(candidates: StopModelsCandidate[], classification: StopModelsCandidateClassification): string {
+	const items = candidates.filter((candidate) => candidate.classification === classification);
+	if (items.length === 0) {
+		return "none";
+	}
+	const groupedByPattern = new Map<string, StopModelsCandidate[]>();
+	for (const candidate of items) {
+		const existing = groupedByPattern.get(candidate.pattern);
+		if (existing) {
+			existing.push(candidate);
+		} else {
+			groupedByPattern.set(candidate.pattern, [candidate]);
 		}
-		const first = candidates[0];
-		return `${pattern}=${candidates.length} (${first.pid} ${truncate(first.command, 48)})`;
-	}).join("; ");
+	}
+	return [...groupedByPattern.entries()]
+		.map(([pattern, patternCandidates]) => {
+			const first = patternCandidates[0];
+			return `${pattern}=${patternCandidates.length} (${first.pid} ${truncate(first.command, 48)})`;
+		})
+		.join("; ");
+}
+
+function formatProcessSummary(snapshot: LocalDiagnosticsSnapshot): string {
+	const candidates = parseStopModelsCandidates(snapshot.processes);
+	const likely = candidates.filter((candidate) => candidate.classification === "likely");
+	const noisy = candidates.filter((candidate) => candidate.classification === "noisy");
+	return [`likely=${likely.length} (${formatCandidateGroupSummary(candidates, "likely")})`, `noisy=${noisy.length} (${formatCandidateGroupSummary(candidates, "noisy")})`].join("; ");
 }
 
 export function formatLocalDiagnosticsSnapshot(snapshot: LocalDiagnosticsSnapshot): string {
@@ -293,7 +381,13 @@ export function parseStopModelsCandidates(outputByPattern: Record<string, string
 			if (!Number.isInteger(pid) || candidates.has(pid)) {
 				continue;
 			}
-			candidates.set(pid, { pattern, pid, command: match[2] });
+			const command = match[2];
+			candidates.set(pid, {
+				pattern,
+				pid,
+				command,
+				classification: classifyStopModelsCandidate(pattern, command),
+			});
 		}
 	}
 	return [...candidates.values()].sort((left, right) => left.pid - right.pid);
@@ -351,12 +445,17 @@ function findStopTarget(request: StopModelsRequest, candidates: StopModelsCandid
 }
 
 function formatStopModelsDryRun(candidates: StopModelsCandidate[]): string {
-	const candidateLines = candidates.length > 0 ? candidates.map((candidate) => `${candidate.pattern}: ${candidate.pid} ${candidate.command}`) : ["none"];
+	const likely = candidates.filter((candidate) => candidate.classification === "likely");
+	const noisy = candidates.filter((candidate) => candidate.classification === "noisy");
+	const formatLines = (items: StopModelsCandidate[]): string[] =>
+		items.length > 0 ? items.map((candidate) => `- ${candidate.pattern}: ${candidate.pid} ${candidate.command}`) : ["- none"];
 	return [
 		"p4j stop-models dry-run",
 		"No processes were stopped.",
-		"Candidates:",
-		...candidateLines,
+		`Likely candidates (${likely.length}):`,
+		...formatLines(likely),
+		`Noisy/local matches (${noisy.length}):`,
+		...formatLines(noisy),
 		"Apply: p4j stop-models --apply --pid <pid> requires an interactive confirmation.",
 	].join("\n");
 }
@@ -455,6 +554,13 @@ export default function (pi: ExtensionAPI) {
 		description: "Show read-only local diagnostics",
 		handler: async (_args, ctx) => {
 			ctx.ui.notify(getLocalReport(ctx.cwd), "info");
+		},
+	});
+
+	pi.registerCommand("p4j:hints", {
+		description: "Show model routing hints from the current registry",
+		handler: async (_args, ctx) => {
+			ctx.ui.notify(formatRoutingHints(ctx), "info");
 		},
 	});
 
