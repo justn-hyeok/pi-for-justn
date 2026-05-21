@@ -74,7 +74,7 @@ test("builds and persists active state without prompt or credential content", ()
 	const cwd = mkdtempSync(join(tmpdir(), "p4j-active-"));
 	const ctx = createContext(cwd) as ExtensionContext;
 	const state = buildActiveState(ctx, "agent_start", "running");
-	assert.equal(state.version, "0.8.0");
+	assert.equal(state.version, "0.8.1");
 	assert.equal(state.status, "running");
 	assert.equal(state.model, "test-provider/test-model");
 	assert.equal(state.context, "12%/345");
@@ -194,7 +194,7 @@ test("builds local diagnostics snapshot from injected read-only command results"
 		};
 		return { stdout: outputs[key] ?? "", stderr: "", status: outputs[key] ? 0 : 1 };
 	});
-	assert.equal(snapshot.version, "0.8.0");
+	assert.equal(snapshot.version, "0.8.1");
 	assert.equal(snapshot.runtime.node, "v25.9.0");
 	assert.equal(snapshot.git, "## main...origin/main");
 	assert.equal(snapshot.processes.ollama, "1234 ollama serve");
@@ -231,7 +231,7 @@ test("writes local report with readable summary and JSON snapshot path", () => {
 	);
 	assert.match(report, /disk \/dev\/disk3s1 100G 50G 50G 50% \//);
 	assert.equal(report.includes(`JSON snapshot: ${snapshotPath}`), true);
-	assert.equal(snapshot.version, "0.8.0");
+	assert.equal(snapshot.version, "0.8.1");
 	assert.equal(snapshot.cwd, cwd);
 });
 

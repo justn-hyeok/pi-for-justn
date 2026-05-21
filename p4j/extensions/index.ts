@@ -4,7 +4,7 @@ import { freemem, platform, release, totalmem } from "node:os";
 import { dirname, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export const VERSION = "0.8.0";
+export const VERSION = "0.8.1";
 export const WORKFLOWS = "quick, think, search, plan, build, review, ship, local, team, ulw";
 export const STOP_MODEL_PATTERNS = ["ollama", "cmux", "node.*model", "node.*provider"] as const;
 
