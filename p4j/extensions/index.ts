@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { freemem, platform, release, totalmem } from "node:os";
 import { dirname, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -117,6 +117,45 @@ function getLocalSnapshotPath(cwd: string): string {
 	return resolve(cwd, ".p4j", "local", "latest.json");
 }
 
+function getLocalEntry(path: string): ReturnType<typeof lstatSync> | undefined {
+	try {
+		return lstatSync(path);
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+			return undefined;
+		}
+		throw error;
+	}
+}
+
+function ensureOwnedDirectory(path: string): boolean {
+	const existing = getLocalEntry(path);
+	if (existing) {
+		return existing.isDirectory() && !existing.isSymbolicLink();
+	}
+	mkdirSync(path);
+	const created = getLocalEntry(path);
+	return created ? created.isDirectory() && !created.isSymbolicLink() : false;
+}
+
+function writeOwnedFile(path: string, requiredDirectories: string[], contents: string): void {
+	for (const directory of requiredDirectories) {
+		if (!ensureOwnedDirectory(directory)) {
+			return;
+		}
+	}
+	if (getLocalEntry(path)?.isSymbolicLink()) {
+		return;
+	}
+	const flags = constants.O_CREAT | constants.O_TRUNC | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0);
+	const fd = openSync(path, flags, 0o600);
+	try {
+		writeFileSync(fd, contents);
+	} finally {
+		closeSync(fd);
+	}
+}
+
 function formatModel(ctx: ExtensionContext): string {
 	return ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "none";
 }
@@ -201,8 +240,7 @@ export function buildActiveState(ctx: ExtensionContext, event: string, status: s
 export function persistActiveState(ctx: ExtensionContext, event: string, status: string): void {
 	const statePath = getStatePath(ctx.cwd);
 	try {
-		mkdirSync(dirname(statePath), { recursive: true });
-		writeFileSync(statePath, `${JSON.stringify(buildActiveState(ctx, event, status), null, "\t")}\n`);
+		writeOwnedFile(statePath, [dirname(statePath)], `${JSON.stringify(buildActiveState(ctx, event, status), null, "\t")}\n`);
 	} catch {
 		// Active state is best-effort local metadata and must not break Pi.
 	}
@@ -255,7 +293,7 @@ export function buildLocalDiagnosticsSnapshot(cwd: string, runner: CommandRunner
 		processes: Object.fromEntries(
 			STOP_MODEL_PATTERNS.map((pattern) => {
 				const result = read("pgrep", ["-fl", pattern]);
-				return [pattern, result !== "exit 1" && !result.startsWith("unavailable") ? result : "none"];
+				return [pattern, result !== "none" && !result.startsWith("exit ") && !result.startsWith("unavailable") ? result : "none"];
 			}),
 		) as Record<(typeof STOP_MODEL_PATTERNS)[number], string>,
 		memory: `${formatBytes(freemem())} free / ${formatBytes(totalmem())} total`,
@@ -266,8 +304,7 @@ export function buildLocalDiagnosticsSnapshot(cwd: string, runner: CommandRunner
 export function persistLocalDiagnosticsSnapshot(cwd: string, snapshot: LocalDiagnosticsSnapshot): void {
 	const snapshotPath = getLocalSnapshotPath(cwd);
 	try {
-		mkdirSync(dirname(snapshotPath), { recursive: true });
-		writeFileSync(snapshotPath, `${JSON.stringify(snapshot, null, "\t")}\n`);
+		writeOwnedFile(snapshotPath, [resolve(cwd, ".p4j"), dirname(snapshotPath)], `${JSON.stringify(snapshot, null, "\t")}\n`);
 	} catch {
 		// Local diagnostics snapshots are best-effort read-only metadata.
 	}
@@ -369,7 +406,7 @@ export function parseStopModelsArgs(args: string): StopModelsRequest {
 export function parseStopModelsCandidates(outputByPattern: Record<string, string>): StopModelsCandidate[] {
 	const candidates = new Map<number, StopModelsCandidate>();
 	for (const [pattern, output] of Object.entries(outputByPattern)) {
-		if (output === "none" || output === "exit 1" || output.startsWith("unavailable")) {
+		if (output === "none" || output.startsWith("exit ") || output.startsWith("unavailable")) {
 			continue;
 		}
 		for (const line of output.split("\n")) {
@@ -397,7 +434,7 @@ function discoverStopModelsCandidates(cwd: string): StopModelsCandidate[] {
 	const outputByPattern = Object.fromEntries(
 		STOP_MODEL_PATTERNS.map((pattern) => {
 			const result = runReadOnly("pgrep", ["-fl", pattern], cwd);
-			const found = result !== "exit 1" && !result.startsWith("unavailable");
+			const found = !result.startsWith("exit ") && !result.startsWith("unavailable");
 			return [pattern, found ? result : "none"];
 		}),
 	);

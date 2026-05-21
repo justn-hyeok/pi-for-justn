@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { LocalDiagnosticsSnapshot } from "../../../p4j/extensions/index.js";
 import {
 	buildActiveState,
 	buildLocalDiagnosticsSnapshot,
@@ -13,8 +14,23 @@ import {
 	parseStopModelsArgs,
 	parseStopModelsCandidates,
 	persistActiveState,
+	persistLocalDiagnosticsSnapshot,
 	runStopModelsRequest,
 } from "../../../p4j/extensions/index.js";
+
+function createLocalSnapshot(cwd: string): LocalDiagnosticsSnapshot {
+	return {
+		version: "0.8.1",
+		timestamp: new Date().toISOString(),
+		cwd,
+		platform: "test-platform",
+		runtime: { node: "v25.9.0", npm: "11.6.2", tmux: "tmux 3.6a" },
+		git: "## main...origin/main",
+		processes: { ollama: "none", cmux: "none", "node.*model": "none", "node.*provider": "none" },
+		memory: "1.0GB free / 2.0GB total",
+		disk: "/dev/disk3s1 100G 50G 50G 50% /",
+	};
+}
 
 function createContext(cwd: string, confirmed = false): ExtensionCommandContext {
 	return {
@@ -84,6 +100,92 @@ test("builds and persists active state without prompt or credential content", ()
 	assert.match(saved, /"event": "agent_start"/);
 	assert.doesNotMatch(saved, /api/i);
 	assert.doesNotMatch(saved, /token/i);
+});
+
+test("best-effort writes survive a blocking .p4j file for active and local state", () => {
+	const cwd = mkdtempSync(join(tmpdir(), "p4j-blocked-"));
+	writeFileSync(join(cwd, ".p4j"), "blocked");
+	const ctx = createContext(cwd) as ExtensionContext;
+	assert.doesNotThrow(() => persistActiveState(ctx, "agent_start", "running"));
+	assert.doesNotThrow(() =>
+		getLocalReport(cwd, (command, args) => {
+			const key = [command, ...args].join(" ");
+			const outputs: Record<string, string> = {
+				"node --version": "v25.9.0\n",
+				"npm --version": "11.6.2\n",
+				"tmux -V": "tmux 3.6a\n",
+				"git status --short --branch": "## main...origin/main\n",
+				"pgrep -fl ollama": "exit 1",
+				"pgrep -fl cmux": "none",
+				"pgrep -fl node.*model": "unavailable (ENOENT)",
+				"pgrep -fl node.*provider": "exit 0",
+				[`df -h ${cwd}`]: "Filesystem Size Used Avail Capacity Mounted on\n/dev/disk3s1 100G 50G 50G 50% /\n",
+			};
+			return { stdout: outputs[key] ?? "", stderr: "", status: outputs[key] ? 0 : 1 };
+		}),
+	);
+});
+
+if (process.platform !== "win32") {
+	test("refuses a symlinked .p4j directory for active state writes", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "p4j-active-symlink-dir-"));
+		const externalDir = mkdtempSync(join(tmpdir(), "p4j-active-external-"));
+		symlinkSync(externalDir, join(cwd, ".p4j"), "dir");
+		assert.doesNotThrow(() => persistActiveState(createContext(cwd) as ExtensionContext, "agent_start", "running"));
+		assert.equal(existsSync(join(externalDir, "active.json")), false);
+	});
+
+	test("refuses a symlinked active state file", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "p4j-active-symlink-file-"));
+		const externalFile = join(mkdtempSync(join(tmpdir(), "p4j-active-target-")), "target.json");
+		mkdirSync(join(cwd, ".p4j"));
+		writeFileSync(externalFile, "keep");
+		symlinkSync(externalFile, join(cwd, ".p4j", "active.json"));
+		assert.doesNotThrow(() => persistActiveState(createContext(cwd) as ExtensionContext, "agent_start", "running"));
+		assert.equal(readFileSync(externalFile, "utf8"), "keep");
+	});
+
+	test("refuses a symlinked .p4j/local directory for snapshot writes", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "p4j-local-symlink-dir-"));
+		const externalDir = mkdtempSync(join(tmpdir(), "p4j-local-external-"));
+		mkdirSync(join(cwd, ".p4j"));
+		symlinkSync(externalDir, join(cwd, ".p4j", "local"), "dir");
+		assert.doesNotThrow(() => persistLocalDiagnosticsSnapshot(cwd, createLocalSnapshot(cwd)));
+		assert.equal(existsSync(join(externalDir, "latest.json")), false);
+	});
+
+	test("refuses a symlinked local snapshot file", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "p4j-local-symlink-file-"));
+		const externalFile = join(mkdtempSync(join(tmpdir(), "p4j-local-target-")), "target.json");
+		mkdirSync(join(cwd, ".p4j", "local"), { recursive: true });
+		writeFileSync(externalFile, "keep");
+		symlinkSync(externalFile, join(cwd, ".p4j", "local", "latest.json"));
+		assert.doesNotThrow(() => persistLocalDiagnosticsSnapshot(cwd, createLocalSnapshot(cwd)));
+		assert.equal(readFileSync(externalFile, "utf8"), "keep");
+	});
+}
+
+test("builds local diagnostics with the exact cwd even when it contains spaces", () => {
+	const cwd = join(tmpdir(), "p4j exact cwd", "with spaces");
+	const seenCwds = new Set<string>();
+	const snapshot = buildLocalDiagnosticsSnapshot(cwd, (command, args, runnerCwd) => {
+		seenCwds.add(runnerCwd);
+		const key = [command, ...args].join(" ");
+		const outputs: Record<string, string> = {
+			"node --version": "v25.9.0\n",
+			"npm --version": "11.6.2\n",
+			"tmux -V": "tmux 3.6a\n",
+			"git status --short --branch": "## main...origin/main\n",
+			"pgrep -fl ollama": "1234 ollama serve\n",
+			"pgrep -fl cmux": "none",
+			"pgrep -fl node.*model": "unavailable (ENOENT)",
+			"pgrep -fl node.*provider": "exit 1",
+			[`df -h ${cwd}`]: "Filesystem Size Used Avail Capacity Mounted on\n/dev/disk3s1 100G 50G 50G 50% /\n",
+		};
+		return { stdout: outputs[key] ?? "", stderr: "", status: outputs[key] ? 0 : 1 };
+	});
+	assert.equal(snapshot.cwd, cwd);
+	assert.deepEqual(seenCwds, new Set([cwd]));
 });
 
 test("formats routing hints when no models are loaded", () => {
@@ -235,6 +337,34 @@ test("writes local report with readable summary and JSON snapshot path", () => {
 	assert.equal(snapshot.cwd, cwd);
 });
 
+test("bounds long local summaries while leaving stop-models dry-run readable", () => {
+	const cwd = mkdtempSync(join(tmpdir(), "p4j-summary-"));
+	const longCommand =
+		"node model runner --provider openai --model gpt-4.1 --port 4545 --workspace /very/long/path/that/keeps/going";
+	const report = getLocalReport(cwd, (command, args) => {
+		const key = [command, ...args].join(" ");
+		const outputs: Record<string, string> = {
+			"node --version": "v25.9.0\n",
+			"npm --version": "11.6.2\n",
+			"tmux -V": "tmux 3.6a\n",
+			"git status --short --branch": "## main...origin/main\n",
+			"pgrep -fl ollama": `900 ${longCommand}\n`,
+			"pgrep -fl cmux": "none",
+			"pgrep -fl node.*model": "exit 1",
+			"pgrep -fl node.*provider": "unavailable (ENOENT)",
+			[`df -h ${cwd}`]: "Filesystem Size Used Avail Capacity Mounted on\n/dev/disk3s1 100G 50G 50G 50% /\n",
+		};
+		return { stdout: outputs[key] ?? "", stderr: "", status: outputs[key] ? 0 : 1 };
+	});
+	assert.match(report, /model candidates: likely=1 .*…/);
+	assert.doesNotMatch(report, /very\/long\/path\/that\/keeps\/going/);
+	const dryRun = getStopModelsDryRun([
+		{ pattern: "ollama", pid: 900, command: longCommand, classification: "likely" },
+	]);
+	assert.match(dryRun, new RegExp(longCommand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+	assert.doesNotMatch(dryRun, /…/);
+});
+
 test("parses stop-models arguments with dry-run default and apply pid", () => {
 	assert.deepEqual(parseStopModelsArgs(""), {
 		apply: false,
@@ -279,6 +409,34 @@ test("parses stop-models candidates from pgrep output with likely and noisy clas
 		{ pattern: "node.*model", pid: 500, command: "node modelpool serve --port 4547", classification: "likely" },
 		{ pattern: "cmux", pid: 600, command: "cmux --proxy", classification: "noisy" },
 		{ pattern: "node.*provider", pid: 700, command: "node provider-daemon start", classification: "likely" },
+	]);
+});
+
+test("parses stop-models candidates deterministically across malformed, duplicate, and exit outputs", () => {
+	const candidates = parseStopModelsCandidates({
+		other: "broken line\n200 node provider-daemon start\nnot-a-pid cmux --proxy\n200 duplicate ignored\n",
+		more: "50 node model runner\ntext only\n900 unrelated command\n",
+		cmux: "exit 0",
+		ollama: "none",
+		provider: "unavailable (ENOENT)",
+	});
+	assert.deepEqual(candidates, [
+		{ pattern: "more", pid: 50, command: "node model runner", classification: "likely" },
+		{ pattern: "other", pid: 200, command: "node provider-daemon start", classification: "likely" },
+		{ pattern: "more", pid: 900, command: "unrelated command", classification: "likely" },
+	]);
+});
+
+test("classifies command-based cmux noise and node model/provider matches from non-cmux patterns", () => {
+	const candidates = parseStopModelsCandidates({
+		noise: "600 cmux --proxy\n",
+		model: "700 node model server\n",
+		provider: "800 node provider daemon\n",
+	});
+	assert.deepEqual(candidates, [
+		{ pattern: "noise", pid: 600, command: "cmux --proxy", classification: "noisy" },
+		{ pattern: "model", pid: 700, command: "node model server", classification: "likely" },
+		{ pattern: "provider", pid: 800, command: "node provider daemon", classification: "likely" },
 	]);
 });
 
@@ -337,6 +495,24 @@ test("refuses apply without pid and without executing", async () => {
 	assert.equal(stoppedPid, undefined);
 });
 
+test("refuses apply without UI and without executing", async () => {
+	let stoppedPid: number | undefined;
+	const result = await runStopModelsRequest(
+		"--apply --pid 400",
+		{ ...createContext("/tmp/p4j", true), hasUI: false },
+		{
+			candidates: [stopCandidate("ollama", 400, "ollama serve")],
+			stopExecutor: (pid) => {
+				stoppedPid = pid;
+				return { ok: true };
+			},
+		},
+	);
+	assert.equal(result.type, "error");
+	assert.match(result.message, /--apply requires interactive UI confirmation/);
+	assert.equal(stoppedPid, undefined);
+});
+
 test("refuses unknown candidate pid and system pid", async () => {
 	const unknown = await runStopModelsRequest("--apply --pid 999", createContext("/tmp/p4j", true), {
 		candidates: [stopCandidate("ollama", 400, "ollama serve")],
@@ -388,6 +564,21 @@ test("refuses stale pid before executing apply", async () => {
 	assert.match(result.message, /pid changed before apply/);
 	assert.equal(providerCalls, 2);
 	assert.equal(stoppedPid, undefined);
+});
+
+test("reports stopExecutor failures without calling process kill directly", async () => {
+	let stopCalls = 0;
+	const result = await runStopModelsRequest("--apply --pid 400", createContext("/tmp/p4j", true), {
+		candidates: [stopCandidate("ollama", 400, "ollama serve")],
+		stopExecutor: () => {
+			stopCalls += 1;
+			return { ok: false, error: "simulated failure" };
+		},
+	});
+	assert.equal(result.type, "error");
+	assert.match(result.message, /p4j stop-models failed/);
+	assert.match(result.message, /simulated failure/);
+	assert.equal(stopCalls, 1);
 });
 
 test("refuses changed pid command before executing apply", async () => {
