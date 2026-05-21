@@ -12,6 +12,8 @@ p4j pi --help
 
 Use `p4j pi ...` when you want raw upstream Pi behavior without p4j argument mapping.
 
+`p4j --help` and `p4j --version` are handled before preflight, so they work from any cwd even in linked checkouts.
+
 For linked checkout usage:
 
 ```bash
@@ -21,6 +23,7 @@ npm link --workspace packages/p4j
 ```
 
 The linked `p4j` binary resolves Pi and the p4j resource layer from the package location, not from the current working directory, so it can be run from other directories after linking.
+`p4j --help` also prints the linked-usage guidance from that binary without needing the working directory to match the repo.
 
 ## Workflow Shortcuts
 
@@ -52,8 +55,7 @@ p4j stop-models
 
 `p4j local` is read-only except for writing an ignored diagnostics snapshot to `.p4j/local/latest.json`. Its terminal output is a short human-readable summary, separates likely model processes from noisy local matches, and includes the JSON snapshot path for detailed inspection.
 
-`p4j hints` reports lightweight provider/model next steps from the current Pi model registry. It suggests `/login`, `/model`, `p4j --list-models`, and explicit `p4j --provider <provider> --model <model>` invocations without changing model selection.
-
+`p4j hints` is manual-only. It reports lightweight provider/model next steps from the current Pi model registry and suggests `/login`, `/model`, `p4j --list-models`, and explicit `p4j --provider <provider> --model <model>` invocations without changing model selection.
 `p4j stop-models` is dry-run by default. It lists candidate local model-adjacent processes and stops nothing. Dry-run output separates likely candidates from noisy/local matches.
 
 ## Explicit Stop Boundary

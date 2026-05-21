@@ -66,10 +66,15 @@
 - Surface `/login`, `/model`, `p4j --list-models`, and explicit `--provider/--model` next steps without changing Pi model selection.
 - Keep provider/model routing in Pi core; p4j only reports hints from the current registry.
 
+## v0.8.1
+
+- Keep `p4j hints` manual-only instead of adding startup auto-notifications.
+- Clarify linked-binary usage so `--help` and `--version` work before preflight from any cwd.
+- Make the p4j help text spell out linked usage and preflight bypass behavior.
+
 ## Next
 
 - Exercise p4j in more real terminal sessions.
-- Decide whether `p4j hints` should appear in startup status or remain manual-only.
 - Keep Pi core changes minimal and prefer the p4j package layer.
 
 ## Deferred
