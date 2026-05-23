@@ -9,7 +9,7 @@
 			"@earendil-works/pi-agent-core": ["../../agent/dist/index.d.ts"],
 			"@earendil-works/pi-ai": ["../../ai/dist/index.d.ts"],
 			"@earendil-works/pi-tui": ["../../tui/dist/index.d.ts"],
-			"@earendil-works/pi-web-ui": ["../dist/index.d.ts"]
+			"@earendil-works/pi-web-ui": ["../src/index.ts"]
 		},
 		"strict": true,
 		"skipLibCheck": true,
