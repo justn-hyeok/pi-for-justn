@@ -10,7 +10,7 @@
 	"context": "unknown",
 	"event": "sample",
 	"notes": [
-		"p4j active updates this file with local session metadata.",
+		"p4j active writes runtime session metadata under ignored .p4j/local/active.json.",
 		"p4j local writes ignored diagnostics snapshots under .p4j/local/.",
 		"p4j stop-models is dry-run by default and requires --apply --pid plus confirmation to stop one candidate.",
 		"p4j hints is manual-only and reports provider/model guidance without changing Pi model selection.",

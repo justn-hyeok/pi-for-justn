@@ -1,13 +1,13 @@
 # .p4j
 
-Local state for p4j lives here.
+Tracked p4j sample state lives here. Runtime state lives under ignored `.p4j/local/` files.
 
 Current status: v0.8.1 active/local diagnostics, noisy-process separation, linked wrapper guidance, manual-only provider/model hints, and confirmed PID-scoped `stop-models --apply`. Do not store secrets, API keys, provider tokens, or private account identifiers here.
 
 Current safe state:
 
-- active session metadata in `active.json`
-- local diagnostics snapshots in ignored runtime files such as `local/latest.json`
+- tracked sample active metadata in `active.json`
+- runtime active metadata and local diagnostics snapshots in ignored files such as `local/active.json` and `local/latest.json`
 - readable local summaries from `p4j local`
 - likely/noisy process separation in local stop-model reports
 - manual-only provider/model guidance from `p4j hints`

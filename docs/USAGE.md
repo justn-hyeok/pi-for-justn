@@ -51,7 +51,7 @@ p4j hints
 p4j stop-models
 ```
 
-`p4j active` reports local session metadata from `.p4j/active.json`.
+`p4j active` reports ignored runtime session metadata from `.p4j/local/active.json`.
 
 `p4j local` is read-only except for writing an ignored diagnostics snapshot to `.p4j/local/latest.json`. Its terminal output is a short human-readable summary, separates likely model processes from noisy local matches, and includes the JSON snapshot path for detailed inspection.
 
@@ -87,6 +87,6 @@ Inside interactive Pi, use `/login` to add credentials and `/model` to choose a 
 
 ## Local State
 
-Tracked sample state lives in `.p4j/active.json`. Runtime snapshots under `.p4j/local/` are ignored by git.
+Tracked sample state lives in `.p4j/active.json`. Runtime active metadata and diagnostics snapshots under `.p4j/local/` are ignored by git.
 
 Do not store secrets, API keys, provider tokens, or private account identifiers in `.p4j/`.
