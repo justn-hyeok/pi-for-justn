@@ -8,6 +8,8 @@ import type { LocalDiagnosticsSnapshot } from "../../../p4j/extensions/index.js"
 import {
 	buildActiveState,
 	buildLocalDiagnosticsSnapshot,
+	formatAgentCatalog,
+	formatAgentRoute,
 	formatRoutingHints,
 	getLocalReport,
 	getStopModelsDryRun,
@@ -15,6 +17,7 @@ import {
 	parseStopModelsCandidates,
 	persistActiveState,
 	persistLocalDiagnosticsSnapshot,
+	routeP4jAgents,
 	runStopModelsRequest,
 } from "../../../p4j/extensions/index.js";
 
@@ -186,6 +189,19 @@ test("builds local diagnostics with the exact cwd even when it contains spaces",
 	});
 	assert.equal(snapshot.cwd, cwd);
 	assert.deepEqual(seenCwds, new Set([cwd]));
+});
+
+test("formats p4j agent catalog and routes requests", () => {
+	const catalog = formatAgentCatalog();
+	assert.match(catalog, /p4j agents/);
+	assert.match(catalog, /- orchestrator: route, decompose, delegate, verify/);
+	assert.match(catalog, /- hardworker: push long multi-step work to completion/);
+	assert.match(catalog, /- quick-son: tiny obvious change helper/);
+	assert.deepEqual(routeP4jAgents("fix a failing css layout bug"), ["orchestrator", "debugger", "designer"]);
+	assert.deepEqual(routeP4jAgents("unknown request"), ["orchestrator", "searcher", "planner", "builder", "reviewer"]);
+	assert.match(formatAgentRoute("research a library api"), /1\. orchestrator/);
+	assert.match(formatAgentRoute("research a library api"), /researcher/);
+	assert.equal(formatAgentRoute("   "), "Usage: /p4j:route <request>");
 });
 
 test("formats routing hints when no models are loaded", () => {

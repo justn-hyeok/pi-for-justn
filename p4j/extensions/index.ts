@@ -8,6 +8,28 @@ export const VERSION = "0.8.1";
 export const WORKFLOWS = "quick, think, search, plan, build, review, ship, local, team, ulw";
 export const STOP_MODEL_PATTERNS = ["ollama", "cmux", "node.*model", "node.*provider"] as const;
 
+export const P4J_AGENTS = [
+	{ name: "orchestrator", role: "route, decompose, delegate, verify", triggers: ["route", "delegate", "orchestrate", "workflow"] },
+	{ name: "hardworker", role: "push long multi-step work to completion", triggers: ["ulw", "long", "complex", "end-to-end"] },
+	{ name: "planner", role: "make implementation plans", triggers: ["plan", "proposal", "steps", "design doc"] },
+	{ name: "searcher", role: "search local codebase patterns", triggers: ["search", "find", "grep", "where", "codebase"] },
+	{ name: "researcher", role: "research external docs and libraries", triggers: ["docs", "library", "api", "github", "external"] },
+	{ name: "builder", role: "implement scoped non-visual code changes", triggers: ["implement", "add", "change", "build", "write"] },
+	{ name: "debugger", role: "diagnose and fix bugs", triggers: ["debug", "bug", "error", "fail", "broken", "crash"] },
+	{ name: "reviewer", role: "review changes and run QA", triggers: ["review", "qa", "verify", "regression", "check work"] },
+	{ name: "designer", role: "handle UI, UX, styling, layout", triggers: ["ui", "ux", "css", "style", "layout", "frontend", "animation"] },
+	{ name: "shipper", role: "commit, changelog, release, delivery", triggers: ["commit", "push", "release", "ship", "changelog", "pr"] },
+	{ name: "adviser", role: "architecture and hard tradeoff advice", triggers: ["architecture", "security", "performance", "tradeoff", "advise"] },
+	{ name: "checker", role: "criticize plans and completion claims", triggers: ["critique", "audit", "validate", "momus", "metis"] },
+	{ name: "worker-son", role: "general focused helper", triggers: ["helper", "subtask", "worker"] },
+	{ name: "builder-son", role: "focused implementation helper", triggers: ["small implement", "focused build"] },
+	{ name: "quick-son", role: "tiny obvious change helper", triggers: ["quick", "tiny", "typo", "single file"] },
+	{ name: "searcher-son", role: "narrow search helper", triggers: ["narrow search", "references"] },
+	{ name: "reviewer-son", role: "targeted review helper", triggers: ["targeted review", "spot check"] },
+	{ name: "designer-son", role: "small UI helper", triggers: ["small ui", "visual slice"] },
+	{ name: "shipper-son", role: "delivery checklist helper", triggers: ["release note", "delivery checklist"] },
+] as const;
+
 type StopModelsCandidateClassification = "likely" | "noisy";
 
 type CommandResult = {
@@ -108,6 +130,41 @@ function truncate(value: string, maxLength: number): string {
 
 function formatBytes(bytes: number): string {
 	return `${(bytes / 1024 / 1024 / 1024).toFixed(1)}GB`;
+}
+
+export function formatAgentCatalog(): string {
+	return [
+		"p4j agents",
+		"Core:",
+		...P4J_AGENTS.filter((agent) => !agent.name.endsWith("-son")).map((agent) => `- ${agent.name}: ${agent.role}`),
+		"Helpers:",
+		...P4J_AGENTS.filter((agent) => agent.name.endsWith("-son")).map((agent) => `- ${agent.name}: ${agent.role}`),
+		"Route: /p4j:route <request>",
+	].join("\n");
+}
+
+export function routeP4jAgents(request: string): string[] {
+	const normalized = request.toLowerCase();
+	const matches = P4J_AGENTS.filter((agent) => agent.triggers.some((trigger) => normalized.includes(trigger))).map(
+		(agent) => agent.name,
+	);
+	if (matches.length > 0) {
+		return [...new Set(["orchestrator", ...matches])].slice(0, 5);
+	}
+	return ["orchestrator", "searcher", "planner", "builder", "reviewer"];
+}
+
+export function formatAgentRoute(request: string): string {
+	const query = request.trim();
+	if (!query) {
+		return "Usage: /p4j:route <request>";
+	}
+	const selected = routeP4jAgents(query);
+	const lines = selected.map((name, index) => {
+		const agent = P4J_AGENTS.find((candidate) => candidate.name === name);
+		return `${index + 1}. ${name}: ${agent?.role ?? "unknown"}`;
+	});
+	return [`p4j route`, `Request: ${query}`, "Recommended agents:", ...lines].join("\n");
 }
 
 function getStatePath(cwd: string): string {
@@ -633,6 +690,20 @@ export default function (pi: ExtensionAPI) {
 		description: "Show model routing hints from the current registry",
 		handler: async (_args, ctx) => {
 			ctx.ui.notify(formatRoutingHints(ctx), "info");
+		},
+	});
+
+	pi.registerCommand("p4j:agents", {
+		description: "Show p4j agent roster",
+		handler: async (_args, ctx) => {
+			ctx.ui.notify(formatAgentCatalog(), "info");
+		},
+	});
+
+	pi.registerCommand("p4j:route", {
+		description: "Recommend p4j agents for a request",
+		handler: async (args, ctx) => {
+			ctx.ui.notify(formatAgentRoute(args), "info");
 		},
 	});
 
