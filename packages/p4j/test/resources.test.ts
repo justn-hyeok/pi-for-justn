@@ -115,6 +115,9 @@ test("extension entrypoint uses p4j status and theme without replacing Pi TUI", 
 	assert.match(content, /p4j:local/);
 	assert.match(content, /p4j:agents/);
 	assert.match(content, /p4j:route/);
+	assert.match(content, /p4j:delegate/);
+	assert.match(content, /p4j:workflow/);
+	assert.match(content, /p4j_subagent/);
 	assert.match(content, /read-only local diagnostics/);
 	assert.match(content, /p4j stop-models dry-run/);
 	assert.match(content, /No processes were stopped/);

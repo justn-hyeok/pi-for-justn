@@ -1,8 +1,9 @@
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { freemem, platform, release, totalmem } from "node:os";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 
 export const VERSION = "0.8.1";
 export const WORKFLOWS = "quick, think, search, plan, build, review, ship, local, team, ulw";
@@ -88,6 +89,19 @@ export type StopModelsRequest = {
 	errors: string[];
 };
 
+type P4jAgentName = (typeof P4J_AGENTS)[number]["name"];
+
+type SubagentRunResult = {
+	agent: string;
+	task: string;
+	ok: boolean;
+	status: number | null;
+	stderr: string;
+	output: string;
+};
+
+type SubagentRunner = (command: string, args: string[], cwd: string) => Pick<SpawnSyncReturns<string>, "stdout" | "stderr" | "status" | "error" | "signal">;
+
 function runReadOnly(command: string, args: string[], cwd: string): string {
 	return formatCommandResult(defaultCommandRunner(command, args, cwd));
 }
@@ -166,6 +180,181 @@ export function formatAgentRoute(request: string): string {
 	});
 	return [`p4j route`, `Request: ${query}`, "Recommended agents:", ...lines].join("\n");
 }
+
+function isP4jAgentName(value: string): value is P4jAgentName {
+	return P4J_AGENTS.some((agent) => agent.name === value);
+}
+
+function getAgentPromptPath(agent: string): string | undefined {
+	if (!isP4jAgentName(agent)) {
+		return undefined;
+	}
+	return resolve(import.meta.dirname, "..", "agents", `${agent}.md`);
+}
+
+function getPiInvocation(args: string[]): { command: string; args: string[] } {
+	const currentScript = process.argv[1];
+	if (currentScript && !currentScript.startsWith("/$bunfs/root/") && existsSync(currentScript)) {
+		return { command: process.execPath, args: [...process.execArgv, currentScript, ...args] };
+	}
+	const execName = basename(process.execPath).toLowerCase();
+	return /^(node|bun)(\.exe)?$/.test(execName) ? { command: "pi", args } : { command: process.execPath, args };
+}
+
+type JsonRecord = Record<string, unknown>;
+
+function isJsonRecord(value: unknown): value is JsonRecord {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getTextFromMessage(message: unknown): string | undefined {
+	if (!isJsonRecord(message)) {
+		return undefined;
+	}
+	const content = message.content;
+	if (typeof content === "string") {
+		return content;
+	}
+	if (!Array.isArray(content)) {
+		return undefined;
+	}
+	return content
+		.map((part) => {
+			if (!isJsonRecord(part) || part.type !== "text" || typeof part.text !== "string") {
+				return "";
+			}
+			return part.text;
+		})
+		.filter((part) => part.length > 0)
+		.join("\n");
+}
+
+function extractSubagentOutput(stdout: string): string {
+	const outputs: string[] = [];
+	for (const line of stdout.split("\n")) {
+		if (!line.trim()) {
+			continue;
+		}
+		try {
+			const event = JSON.parse(line) as unknown;
+			if (!isJsonRecord(event) || event.type !== "message_end") {
+				continue;
+			}
+			const text = getTextFromMessage(event.message);
+			if (text) {
+				outputs.push(text);
+			}
+		} catch {
+			// Ignore non-JSON status lines from child processes.
+		}
+	}
+	return outputs.at(-1) ?? stdout.trim();
+}
+
+export function runP4jSubagent(
+	agent: string,
+	task: string,
+	cwd: string,
+	runner: SubagentRunner = (command, args, runCwd) => spawnSync(command, args, { cwd: runCwd, encoding: "utf8", timeout: 120000 }),
+): SubagentRunResult {
+	const trimmedTask = task.trim();
+	const promptPath = getAgentPromptPath(agent);
+	if (!promptPath) {
+		return { agent, task: trimmedTask, ok: false, status: null, stderr: `Unknown p4j agent: ${agent}`, output: "" };
+	}
+	if (!trimmedTask) {
+		return { agent, task: trimmedTask, ok: false, status: null, stderr: "Missing subagent task", output: "" };
+	}
+	const agentPrompt = readFileSync(promptPath, "utf8");
+	const args = ["--mode", "json", "-p", "--no-session", "--append-system-prompt", agentPrompt, `Task: ${trimmedTask}`];
+	const invocation = getPiInvocation(args);
+	const result = runner(invocation.command, invocation.args, cwd);
+	const stdout = result.stdout ?? "";
+	const stderr = result.error ? result.error.message : (result.stderr ?? "");
+	const ok = result.status === 0 && !result.error && !result.signal;
+	const output = ok ? extractSubagentOutput(stdout) || stderr.trim() : stderr.trim() || extractSubagentOutput(stdout);
+	return { agent, task: trimmedTask, ok, status: result.status, stderr, output };
+}
+
+function formatSubagentResult(result: SubagentRunResult): string {
+	return [
+		`p4j delegate ${result.ok ? "complete" : "failed"}`,
+		`agent: ${result.agent}`,
+		`status: ${result.status ?? "unknown"}`,
+		"output:",
+		result.output || result.stderr || "(no output)",
+	].join("\n");
+}
+
+export function formatDelegatePrompt(agent: string, task: string): string {
+	return [
+		`Use the p4j_subagent tool with agent "${agent}" for this task.`,
+		"Return the subagent result, then summarize next steps and verification gaps.",
+		`Task: ${task.trim()}`,
+	].join("\n");
+}
+
+export function parseDelegateArgs(args: string): { dryRun: boolean; agent?: string; task?: string; error?: string } {
+	const tokens = splitCommandArgs(args);
+	const dryRun = tokens[0] === "--dry-run";
+	const offset = dryRun ? 1 : 0;
+	const agent = tokens[offset];
+	const task = tokens.slice(offset + 1).join(" ").trim();
+	if (!agent || !task) {
+		return { dryRun, error: "Usage: /p4j:delegate [--dry-run] <agent> <task>" };
+	}
+	if (!isP4jAgentName(agent)) {
+		return { dryRun, agent, task, error: `Unknown p4j agent: ${agent}` };
+	}
+	return { dryRun, agent, task };
+}
+
+const P4J_WORKFLOWS = {
+	implement: ["searcher", "planner", "builder", "reviewer"],
+	debug: ["searcher", "debugger", "reviewer"],
+	review: ["reviewer", "checker"],
+	ui: ["designer", "reviewer"],
+	ship: ["shipper", "reviewer"],
+	ulw: ["orchestrator", "hardworker", "reviewer"],
+} as const;
+
+export function formatWorkflowPrompt(name: string, task: string): string {
+	const workflow = P4J_WORKFLOWS[name as keyof typeof P4J_WORKFLOWS];
+	const trimmedTask = task.trim();
+	if (!workflow || !trimmedTask) {
+		return "Usage: /p4j:workflow <implement|debug|review|ui|ship|ulw> <task>";
+	}
+	return [
+		`Run p4j workflow "${name}" for this task.`,
+		`Agents: ${workflow.join(" -> ")}`,
+		"Use p4j_subagent for isolated agent steps when execution is needed. Keep outputs concise and verify before completion.",
+		`Task: ${trimmedTask}`,
+	].join("\n");
+}
+
+export function transformKeywordInput(text: string): string | undefined {
+	const match = /^\[(search|analyze|review|ulw)\]\s+(.+)/i.exec(text.trim());
+	if (!match) {
+		return undefined;
+	}
+	const mode = match[1].toLowerCase();
+	const task = match[2].trim();
+	if (mode === "search") {
+		return formatDelegatePrompt("searcher", task);
+	}
+	if (mode === "review") {
+		return formatWorkflowPrompt("review", task);
+	}
+	if (mode === "ulw") {
+		return formatWorkflowPrompt("ulw", task);
+	}
+	return [formatAgentRoute(task), "", "Analyze first. Gather context, then pick the listed p4j agents or p4j_subagent calls only if needed."].join("\n");
+}
+
+const P4J_SUBAGENT_PARAMS = Type.Object({
+	agent: Type.String({ description: "p4j agent name to invoke" }),
+	task: Type.String({ description: "task to delegate to the agent" }),
+});
 
 function getStatePath(cwd: string): string {
 	return resolve(cwd, ".p4j", "local", "active.json");
@@ -650,6 +839,32 @@ export async function runStopModelsRequest(
 }
 
 export default function (pi: ExtensionAPI) {
+	pi.registerTool({
+		name: "p4j_subagent",
+		label: "p4j Subagent",
+		description: "Run a p4j agent in an isolated pi JSON-mode subprocess.",
+		promptSnippet: "p4j_subagent delegates focused work to p4j agents such as searcher, builder, reviewer, designer, or hardworker.",
+		promptGuidelines: ["Use p4j_subagent when isolated agent context is helpful, and keep each delegated task focused."],
+		parameters: P4J_SUBAGENT_PARAMS,
+		executionMode: "sequential",
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const result = runP4jSubagent(params.agent, params.task, ctx.cwd);
+			return {
+				content: [{ type: "text", text: formatSubagentResult(result) }],
+				details: { agent: result.agent, task: result.task, ok: result.ok, status: result.status, output: result.output },
+				isError: !result.ok,
+			};
+		},
+	});
+
+	pi.on("input", (event) => {
+		if (event.source === "extension") {
+			return { action: "continue" };
+		}
+		const transformed = transformKeywordInput(event.text);
+		return transformed ? { action: "transform", text: transformed, images: event.images } : { action: "continue" };
+	});
+
 	pi.on("session_start", (_event, ctx) => {
 		ctx.ui.setStatus("p4j", `p4j v${VERSION}`);
 		const theme = ctx.ui.getTheme("p4j");
@@ -704,6 +919,38 @@ export default function (pi: ExtensionAPI) {
 		description: "Recommend p4j agents for a request",
 		handler: async (args, ctx) => {
 			ctx.ui.notify(formatAgentRoute(args), "info");
+		},
+	});
+
+	pi.registerCommand("p4j:delegate", {
+		description: "Delegate a task to a p4j agent via p4j_subagent",
+		handler: async (args, ctx) => {
+			const request = parseDelegateArgs(args);
+			if (request.error || !request.agent || !request.task) {
+				ctx.ui.notify(request.error ?? "Usage: /p4j:delegate [--dry-run] <agent> <task>", "warning");
+				return;
+			}
+			const prompt = formatDelegatePrompt(request.agent, request.task);
+			if (request.dryRun) {
+				ctx.ui.notify(prompt, "info");
+				return;
+			}
+			pi.sendUserMessage(prompt, ctx.isIdle() ? undefined : { deliverAs: "followUp" });
+			ctx.ui.notify(`Queued p4j delegate: ${request.agent}`, "info");
+		},
+	});
+
+	pi.registerCommand("p4j:workflow", {
+		description: "Queue a p4j multi-agent workflow prompt",
+		handler: async (args, ctx) => {
+			const [name, ...taskParts] = splitCommandArgs(args);
+			const prompt = formatWorkflowPrompt(name ?? "", taskParts.join(" "));
+			if (prompt.startsWith("Usage:")) {
+				ctx.ui.notify(prompt, "warning");
+				return;
+			}
+			pi.sendUserMessage(prompt, ctx.isIdle() ? undefined : { deliverAs: "followUp" });
+			ctx.ui.notify(`Queued p4j workflow: ${name}`, "info");
 		},
 	});
 

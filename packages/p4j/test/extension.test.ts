@@ -10,15 +10,20 @@ import {
 	buildLocalDiagnosticsSnapshot,
 	formatAgentCatalog,
 	formatAgentRoute,
+	formatDelegatePrompt,
 	formatRoutingHints,
+	formatWorkflowPrompt,
 	getLocalReport,
 	getStopModelsDryRun,
+	parseDelegateArgs,
 	parseStopModelsArgs,
 	parseStopModelsCandidates,
 	persistActiveState,
 	persistLocalDiagnosticsSnapshot,
 	routeP4jAgents,
+	runP4jSubagent,
 	runStopModelsRequest,
+	transformKeywordInput,
 } from "../../../p4j/extensions/index.js";
 
 function createLocalSnapshot(cwd: string): LocalDiagnosticsSnapshot {
@@ -202,6 +207,62 @@ test("formats p4j agent catalog and routes requests", () => {
 	assert.match(formatAgentRoute("research a library api"), /1\. orchestrator/);
 	assert.match(formatAgentRoute("research a library api"), /researcher/);
 	assert.equal(formatAgentRoute("   "), "Usage: /p4j:route <request>");
+});
+
+test("formats p4j delegate prompts, workflows, and keyword transforms", () => {
+	assert.deepEqual(parseDelegateArgs("--dry-run searcher find auth code"), {
+		dryRun: true,
+		agent: "searcher",
+		task: "find auth code",
+	});
+	assert.match(parseDelegateArgs("missing").error ?? "", /Usage/);
+	assert.match(parseDelegateArgs("ghost do work").error ?? "", /Unknown p4j agent/);
+	assert.match(formatDelegatePrompt("searcher", "find auth code"), /p4j_subagent/);
+	assert.match(formatWorkflowPrompt("implement", "add caching"), /searcher -> planner -> builder -> reviewer/);
+	assert.match(formatWorkflowPrompt("nope", "add caching"), /Usage/);
+	assert.match(transformKeywordInput("[search] find auth code") ?? "", /agent "searcher"/);
+	assert.match(transformKeywordInput("[review] check this") ?? "", /reviewer -> checker/);
+	assert.match(transformKeywordInput("[ulw] finish this") ?? "", /orchestrator -> hardworker -> reviewer/);
+	assert.match(transformKeywordInput("[analyze] css bug") ?? "", /Recommended agents/);
+	assert.equal(transformKeywordInput("plain input"), undefined);
+});
+
+test("runs p4j subagent through json-mode invocation", () => {
+	const result = runP4jSubagent("searcher", "find auth code", "/tmp/p4j", (_command, args, cwd) => {
+		assert.equal(cwd, "/tmp/p4j");
+		const promptIndex = args.indexOf("--append-system-prompt") + 1;
+		assert.match(args[promptIndex] ?? "", /You are the p4j searcher/);
+		assert.equal(
+			args.some((arg) => arg === "Task: find auth code"),
+			true,
+		);
+		return {
+			stdout:
+				'{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"found auth"}]}}\n',
+			stderr: "",
+			status: 0,
+			error: undefined,
+			signal: null,
+		};
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.output, "found auth");
+	assert.equal(result.stderr, "");
+	assert.equal(runP4jSubagent("ghost", "work", "/tmp/p4j").ok, false);
+	assert.equal(runP4jSubagent("searcher", "  ", "/tmp/p4j").stderr, "Missing subagent task");
+});
+
+test("reports p4j subagent failures without exposing raw stdout", () => {
+	const result = runP4jSubagent("searcher", "find auth code", "/tmp/p4j", () => ({
+		stdout: '{"type":"session_start","message":{"content":"raw transcript"}}\n',
+		stderr: "child failed",
+		status: 1,
+		error: undefined,
+		signal: null,
+	}));
+	assert.equal(result.ok, false);
+	assert.equal(result.output, "child failed");
+	assert.equal("stdout" in result, false);
 });
 
 test("formats routing hints when no models are loaded", () => {
