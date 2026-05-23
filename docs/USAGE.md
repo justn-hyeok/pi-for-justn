@@ -48,10 +48,14 @@ p4j status
 p4j active
 p4j local
 p4j hints
+p4j agents
+p4j route "request"
+p4j delegate <agent> "task"
+p4j workflow <implement|debug|review|ui|ship|ulw> "task"
 p4j stop-models
 ```
 
-Inside the TUI, `/p4j:agents` shows the p4j agent roster and `/p4j:route <request>` recommends agents for a task. The initial roster uses direct names: `orchestrator`, `hardworker`, `planner`, `searcher`, `researcher`, `builder`, `debugger`, `reviewer`, `designer`, `shipper`, `adviser`, `checker`, plus focused `*-son` helpers.
+Inside the TUI, `/p4j:agents` shows the p4j agent roster and `/p4j:route <request>` recommends agents for a task. `/p4j:delegate <agent> <task>` queues a `p4j_subagent` delegation, and `/p4j:workflow <implement|debug|review|ui|ship|ulw> <task>` queues a multi-agent workflow prompt. `[search]`, `[analyze]`, `[review]`, and `[ulw]` prefixes transform normal input into p4j routing/delegation prompts. The initial roster uses direct names: `orchestrator`, `hardworker`, `planner`, `searcher`, `researcher`, `builder`, `debugger`, `reviewer`, `designer`, `shipper`, `adviser`, `checker`, plus focused `*-son` helpers.
 
 `p4j active` reports ignored runtime session metadata from `.p4j/local/active.json`.
 
