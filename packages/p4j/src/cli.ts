@@ -10,6 +10,10 @@ const P4J_COMMANDS = new Map([
 	["active", "/p4j:active"],
 	["local", "/p4j:local"],
 	["hints", "/p4j:hints"],
+	["agents", "/p4j:agents"],
+	["route", "/p4j:route"],
+	["delegate", "/p4j:delegate"],
+	["workflow", "/p4j:workflow"],
 	["stop-models", "/p4j:stop-models"],
 ]);
 const PI_COMMANDS = new Set(["install", "remove", "uninstall", "update", "list", "config"]);
@@ -54,7 +58,7 @@ export function getP4jHelp(): string {
 Usage:
   p4j [pi options] [@files...] [messages...]
   p4j <quick|think|search|plan|build|review|ship|team|ulw> <task>
-  p4j <status|active|local|hints|stop-models> [args...]
+  p4j <status|active|local|hints|agents|route|delegate|workflow|stop-models> [args...]
   p4j <pi command> [args...]
 
 Help and version:
@@ -84,6 +88,12 @@ Local stubs:
   p4j active          Show read-only p4j active state
   p4j local           Show read-only local diagnostics
   p4j hints           Show manual model routing hints from the current registry
+  p4j agents          Show p4j agent roster
+  p4j route <request> Recommend p4j agents for a task
+  p4j delegate <agent> <task>
+                       Queue p4j_subagent delegation
+  p4j workflow <name> <task>
+                       Queue a p4j multi-agent workflow
   p4j stop-models     Dry-run model/process candidates without stopping anything
   p4j stop-models --apply --pid <pid>
                        Stop one candidate after interactive confirmation

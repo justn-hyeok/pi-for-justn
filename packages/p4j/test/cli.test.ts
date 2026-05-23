@@ -56,6 +56,18 @@ test("maps p4j local operations to p4j extension commands", () => {
 	assert.deepEqual(withP4jLayer(["active"], layerPath), ["-e", layerPath, "/p4j:active"]);
 	assert.deepEqual(withP4jLayer(["local"], layerPath), ["-e", layerPath, "/p4j:local"]);
 	assert.deepEqual(withP4jLayer(["hints"], layerPath), ["-e", layerPath, "/p4j:hints"]);
+	assert.deepEqual(withP4jLayer(["agents"], layerPath), ["-e", layerPath, "/p4j:agents"]);
+	assert.deepEqual(withP4jLayer(["route", "fix", "css"], layerPath), ["-e", layerPath, "/p4j:route fix css"]);
+	assert.deepEqual(withP4jLayer(["delegate", "searcher", "find", "auth"], layerPath), [
+		"-e",
+		layerPath,
+		"/p4j:delegate searcher find auth",
+	]);
+	assert.deepEqual(withP4jLayer(["workflow", "implement", "add", "cache"], layerPath), [
+		"-e",
+		layerPath,
+		"/p4j:workflow implement add cache",
+	]);
 	assert.deepEqual(withP4jLayer(["stop-models"], layerPath), ["-e", layerPath, "/p4j:stop-models"]);
 	assert.deepEqual(withP4jLayer(["stop-models", "--apply", "--pid", "123"], layerPath), [
 		"-e",
@@ -91,6 +103,9 @@ test("documents install and linked usage in help", () => {
 	assert.match(help, /p4j local/);
 	assert.match(help, /p4j hints/);
 	assert.match(help, /Show manual model routing hints from the current registry/);
+	assert.match(help, /p4j agents/);
+	assert.match(help, /p4j delegate <agent> <task>/);
+	assert.match(help, /p4j workflow <name> <task>/);
 	assert.match(help, /p4j stop-models/);
 	assert.match(help, /Dry-run model\/process candidates without stopping anything/);
 	assert.match(help, /p4j stop-models --apply --pid <pid>/);
