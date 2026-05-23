@@ -6,6 +6,27 @@ import { test } from "node:test";
 const repoRoot = resolve(import.meta.dirname, "..", "..", "..");
 const layerRoot = resolve(repoRoot, "p4j");
 const workflowPrompts = ["quick", "think", "search", "plan", "build", "review", "ship", "local", "team", "ulw"];
+const roleAgents = [
+	"orchestrator",
+	"hardworker",
+	"planner",
+	"searcher",
+	"researcher",
+	"builder",
+	"debugger",
+	"reviewer",
+	"designer",
+	"shipper",
+	"adviser",
+	"checker",
+	"worker-son",
+	"builder-son",
+	"quick-son",
+	"searcher-son",
+	"reviewer-son",
+	"designer-son",
+	"shipper-son",
+];
 const roleSkills = [
 	"lead",
 	"planner",
@@ -63,6 +84,17 @@ test("prompt templates have frontmatter and bodies", () => {
 	}
 });
 
+test("agent definitions have matching names and descriptions", () => {
+	const agents = new Set(readdirSync(resolve(layerRoot, "agents")).map((entry) => entry.replace(/\.md$/, "")));
+	assert.deepEqual(agents, new Set(roleAgents));
+	for (const name of roleAgents) {
+		const content = readFileSync(resolve(layerRoot, "agents", `${name}.md`), "utf8");
+		assert.match(content, new RegExp(`name: ${name}`));
+		assert.match(content, /description:/);
+		assert.match(content, /tools:/);
+	}
+});
+
 test("skills have matching names and descriptions", () => {
 	const skills = new Set(readdirSync(resolve(layerRoot, "skills")));
 	assert.deepEqual(skills, new Set(roleSkills));
@@ -81,6 +113,8 @@ test("extension entrypoint uses p4j status and theme without replacing Pi TUI", 
 	assert.match(content, /setTheme\(theme\)/);
 	assert.match(content, /p4j:active/);
 	assert.match(content, /p4j:local/);
+	assert.match(content, /p4j:agents/);
+	assert.match(content, /p4j:route/);
 	assert.match(content, /read-only local diagnostics/);
 	assert.match(content, /p4j stop-models dry-run/);
 	assert.match(content, /No processes were stopped/);

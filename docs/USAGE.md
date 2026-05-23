@@ -51,6 +51,8 @@ p4j hints
 p4j stop-models
 ```
 
+Inside the TUI, `/p4j:agents` shows the p4j agent roster and `/p4j:route <request>` recommends agents for a task. The initial roster uses direct names: `orchestrator`, `hardworker`, `planner`, `searcher`, `researcher`, `builder`, `debugger`, `reviewer`, `designer`, `shipper`, `adviser`, `checker`, plus focused `*-son` helpers.
+
 `p4j active` reports ignored runtime session metadata from `.p4j/local/active.json`.
 
 `p4j local` is read-only except for writing an ignored diagnostics snapshot to `.p4j/local/latest.json`. Its terminal output is a short human-readable summary, separates likely model processes from noisy local matches, and includes the JSON snapshot path for detailed inspection.
