@@ -96,7 +96,7 @@ test("builds and persists active state without prompt or credential content", ()
 	assert.equal(state.context, "12%/345");
 
 	persistActiveState(ctx, "agent_start", "running");
-	const saved = readFileSync(join(cwd, ".p4j", "active.json"), "utf8");
+	const saved = readFileSync(join(cwd, ".p4j", "local", "active.json"), "utf8");
 	assert.match(saved, /"event": "agent_start"/);
 	assert.doesNotMatch(saved, /api/i);
 	assert.doesNotMatch(saved, /token/i);
@@ -132,15 +132,15 @@ if (process.platform !== "win32") {
 		const externalDir = mkdtempSync(join(tmpdir(), "p4j-active-external-"));
 		symlinkSync(externalDir, join(cwd, ".p4j"), "dir");
 		assert.doesNotThrow(() => persistActiveState(createContext(cwd) as ExtensionContext, "agent_start", "running"));
-		assert.equal(existsSync(join(externalDir, "active.json")), false);
+		assert.equal(existsSync(join(externalDir, "local", "active.json")), false);
 	});
 
 	test("refuses a symlinked active state file", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "p4j-active-symlink-file-"));
 		const externalFile = join(mkdtempSync(join(tmpdir(), "p4j-active-target-")), "target.json");
-		mkdirSync(join(cwd, ".p4j"));
+		mkdirSync(join(cwd, ".p4j", "local"), { recursive: true });
 		writeFileSync(externalFile, "keep");
-		symlinkSync(externalFile, join(cwd, ".p4j", "active.json"));
+		symlinkSync(externalFile, join(cwd, ".p4j", "local", "active.json"));
 		assert.doesNotThrow(() => persistActiveState(createContext(cwd) as ExtensionContext, "agent_start", "running"));
 		assert.equal(readFileSync(externalFile, "utf8"), "keep");
 	});
@@ -370,6 +370,7 @@ test("parses stop-models arguments with dry-run default and apply pid", () => {
 		apply: false,
 		dryRun: true,
 		explicitDryRun: false,
+		verbose: false,
 		pid: undefined,
 		errors: [],
 	});
@@ -377,6 +378,15 @@ test("parses stop-models arguments with dry-run default and apply pid", () => {
 		apply: false,
 		dryRun: true,
 		explicitDryRun: true,
+		verbose: false,
+		pid: undefined,
+		errors: [],
+	});
+	assert.deepEqual(parseStopModelsArgs("--verbose"), {
+		apply: false,
+		dryRun: true,
+		explicitDryRun: false,
+		verbose: true,
 		pid: undefined,
 		errors: [],
 	});
@@ -384,6 +394,7 @@ test("parses stop-models arguments with dry-run default and apply pid", () => {
 		apply: true,
 		dryRun: false,
 		explicitDryRun: false,
+		verbose: false,
 		pid: 123,
 		errors: [],
 	});
@@ -391,6 +402,7 @@ test("parses stop-models arguments with dry-run default and apply pid", () => {
 		apply: true,
 		dryRun: false,
 		explicitDryRun: false,
+		verbose: false,
 		pid: undefined,
 		errors: [],
 	});
@@ -440,15 +452,58 @@ test("classifies command-based cmux noise and node model/provider matches from n
 	]);
 });
 
-test("renders stop-models dry-run with likely and noisy grouping", () => {
+test("renders stop-models dry-run with likely candidates and folded noisy summary", () => {
 	const report = getStopModelsDryRun([
 		{ pattern: "ollama", pid: 400, command: "ollama serve", classification: "likely" },
-		{ pattern: "cmux", pid: 600, command: "cmux --proxy", classification: "noisy" },
+		{
+			pattern: "cmux",
+			pid: 600,
+			command: "npm exec @modelcontextprotocol/server-filesystem HOME=/Users/justn PATH=/long",
+			classification: "noisy",
+		},
+		{
+			pattern: "cmux",
+			pid: 601,
+			command: "npm exec @modelcontextprotocol/server-memory HOME=/Users/justn PATH=/long",
+			classification: "noisy",
+		},
 	]);
 	assert.match(report, /p4j stop-models dry-run/);
 	assert.match(report, /No processes were stopped/);
 	assert.match(report, /Likely candidates \(1\):\n- ollama: 400 ollama serve/);
-	assert.match(report, /Noisy\/local matches \(1\):\n- cmux: 600 cmux --proxy/);
+	assert.match(
+		report,
+		/Noisy\/local matches \(2\):\n- cmux: 2 matches hidden \(sample: 600 npm exec @modelcontextprotocol\/server-filesystem\)/,
+	);
+	assert.match(report, /add --verbose/);
+	assert.doesNotMatch(report, /PATH=\/long/);
+	assert.doesNotMatch(report, /server-memory/);
+});
+
+test("renders stop-models verbose dry-run with sanitized noisy details", () => {
+	const report = getStopModelsDryRun(
+		[
+			{
+				pattern: "cmux",
+				pid: 600,
+				command: "npm exec @modelcontextprotocol/server-filesystem HOME=/Users/justn PATH=/long",
+				classification: "noisy",
+			},
+			{
+				pattern: "cmux",
+				pid: 601,
+				command: "npm exec @modelcontextprotocol/server-memory HOME=/Users/justn PATH=/long",
+				classification: "noisy",
+			},
+		],
+		true,
+	);
+	assert.match(
+		report,
+		/Noisy\/local matches \(2\):\n- cmux: 600 npm exec @modelcontextprotocol\/server-filesystem\n- cmux: 601 npm exec @modelcontextprotocol\/server-memory/,
+	);
+	assert.match(report, /Verbose: showing all noisy\/local matches\./);
+	assert.doesNotMatch(report, /PATH=\/long/);
 });
 
 test("refuses unknown dry-run options without executing", async () => {

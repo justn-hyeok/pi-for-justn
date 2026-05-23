@@ -61,6 +61,7 @@ export type StopModelsRequest = {
 	apply: boolean;
 	dryRun: boolean;
 	explicitDryRun: boolean;
+	verbose: boolean;
 	pid: number | undefined;
 	errors: string[];
 };
@@ -110,7 +111,7 @@ function formatBytes(bytes: number): string {
 }
 
 function getStatePath(cwd: string): string {
-	return resolve(cwd, ".p4j", "active.json");
+	return resolve(cwd, ".p4j", "local", "active.json");
 }
 
 function getLocalSnapshotPath(cwd: string): string {
@@ -240,7 +241,7 @@ export function buildActiveState(ctx: ExtensionContext, event: string, status: s
 export function persistActiveState(ctx: ExtensionContext, event: string, status: string): void {
 	const statePath = getStatePath(ctx.cwd);
 	try {
-		writeOwnedFile(statePath, [dirname(statePath)], `${JSON.stringify(buildActiveState(ctx, event, status), null, "\t")}\n`);
+		writeOwnedFile(statePath, [resolve(ctx.cwd, ".p4j"), dirname(statePath)], `${JSON.stringify(buildActiveState(ctx, event, status), null, "\t")}\n`);
 	} catch {
 		// Active state is best-effort local metadata and must not break Pi.
 	}
@@ -374,7 +375,7 @@ function splitCommandArgs(args: string): string[] {
 
 export function parseStopModelsArgs(args: string): StopModelsRequest {
 	const tokens = splitCommandArgs(args);
-	const request: StopModelsRequest = { apply: false, dryRun: true, explicitDryRun: false, pid: undefined, errors: [] };
+	const request: StopModelsRequest = { apply: false, dryRun: true, explicitDryRun: false, verbose: false, pid: undefined, errors: [] };
 	for (let index = 0; index < tokens.length; index += 1) {
 		const token = tokens[index];
 		if (token === "--dry-run") {
@@ -385,6 +386,10 @@ export function parseStopModelsArgs(args: string): StopModelsRequest {
 		if (token === "--apply") {
 			request.apply = true;
 			request.dryRun = false;
+			continue;
+		}
+		if (token === "--verbose") {
+			request.verbose = true;
 			continue;
 		}
 		if (token === "--pid") {
@@ -481,24 +486,54 @@ function findStopTarget(request: StopModelsRequest, candidates: StopModelsCandid
 	return { candidate };
 }
 
-function formatStopModelsDryRun(candidates: StopModelsCandidate[]): string {
+function sanitizeProcessCommand(command: string): string {
+	const tokens = command.trim().split(/\s+/);
+	const envIndex = tokens.findIndex((token, index) => index > 0 && /^[A-Z_][A-Z0-9_]*=/.test(token));
+	return (envIndex === -1 ? tokens : tokens.slice(0, envIndex)).join(" ");
+}
+
+function formatCandidateLine(candidate: StopModelsCandidate): string {
+	return `- ${candidate.pattern}: ${candidate.pid} ${truncate(sanitizeProcessCommand(candidate.command), 120)}`;
+}
+
+function formatNoisySummary(candidates: StopModelsCandidate[]): string[] {
+	if (candidates.length === 0) {
+		return ["- none"];
+	}
+	const groupedByPattern = new Map<string, StopModelsCandidate[]>();
+	for (const candidate of candidates) {
+		const existing = groupedByPattern.get(candidate.pattern);
+		if (existing) {
+			existing.push(candidate);
+		} else {
+			groupedByPattern.set(candidate.pattern, [candidate]);
+		}
+	}
+	return [...groupedByPattern.entries()].map(([pattern, patternCandidates]) => {
+		const sample = patternCandidates[0];
+		return `- ${pattern}: ${patternCandidates.length} matches hidden (sample: ${sample.pid} ${truncate(sanitizeProcessCommand(sample.command), 96)})`;
+	});
+}
+
+function formatStopModelsDryRun(candidates: StopModelsCandidate[], verbose: boolean): string {
 	const likely = candidates.filter((candidate) => candidate.classification === "likely");
 	const noisy = candidates.filter((candidate) => candidate.classification === "noisy");
 	const formatLines = (items: StopModelsCandidate[]): string[] =>
-		items.length > 0 ? items.map((candidate) => `- ${candidate.pattern}: ${candidate.pid} ${candidate.command}`) : ["- none"];
+		items.length > 0 ? items.map((candidate) => formatCandidateLine(candidate)) : ["- none"];
 	return [
 		"p4j stop-models dry-run",
 		"No processes were stopped.",
 		`Likely candidates (${likely.length}):`,
 		...formatLines(likely),
 		`Noisy/local matches (${noisy.length}):`,
-		...formatLines(noisy),
+		...(verbose ? formatLines(noisy) : formatNoisySummary(noisy)),
+		verbose ? "Verbose: showing all noisy/local matches." : "Verbose: add --verbose to show every noisy/local match.",
 		"Apply: p4j stop-models --apply --pid <pid> requires an interactive confirmation.",
 	].join("\n");
 }
 
-export function getStopModelsDryRun(candidates: StopModelsCandidate[]): string {
-	return formatStopModelsDryRun(candidates);
+export function getStopModelsDryRun(candidates: StopModelsCandidate[], verbose = false): string {
+	return formatStopModelsDryRun(candidates, verbose);
 }
 
 function defaultStopExecutor(pid: number): { ok: true } | { ok: false; error: string } {
@@ -525,7 +560,7 @@ export async function runStopModelsRequest(
 	if (!request.apply) {
 		return target.error
 			? { type: "error", message: `p4j stop-models refused\n${target.error}` }
-			: { type: "warning", message: formatStopModelsDryRun(candidates) };
+			: { type: "warning", message: formatStopModelsDryRun(candidates, request.verbose) };
 	}
 	if (target.error) {
 		return { type: "error", message: `p4j stop-models refused\n${target.error}` };
